@@ -33,7 +33,7 @@ RUN touch .env ; \
 COPY --chown=node:node . .
 
 RUN NODE_OPTIONS="--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE}" npm run frontend && \
-    npm prune --production && \
+    npm prune --omit=dev --ignore-scripts --offline --no-audit --no-fund && \
     npm cache clean --force
 
 ARG BUILD_COMMIT=
