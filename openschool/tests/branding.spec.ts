@@ -61,10 +61,7 @@ for (const width of [390, 1440]) {
         const paths = ['/me', '/courses', '/schedule', '/simulation/ai-circles'];
         for (let i = 0; i < paths.length; i++) {
           const link = brand.getByRole('link', { name: labels[i], exact: true });
-          await expect(link).toHaveAttribute(
-            'href',
-            `https://openschool.langracetech.com${paths[i]}`,
-          );
+          await expect(link).toHaveAttribute('href', `http://127.0.0.1:15311${paths[i]}`);
           expect(await link.getAttribute('target')).toBeNull();
         }
         expect(await page.locator('link[rel="icon"]').getAttribute('href')).toBe(
@@ -105,7 +102,7 @@ for (const width of [390, 1440]) {
         await expect(page).toHaveTitle(`${title} · OpenSchool-Chat`);
         if (width === 1440 && lang === 'en' && scheme === 'light') {
           for (const path of paths) {
-            const target = `https://openschool.langracetech.com${path}`;
+            const target = `http://127.0.0.1:15311${path}`;
             await page.route(target, (route) =>
               route.fulfill({ contentType: 'text/html', body: '<p>Synthetic destination</p>' }),
             );

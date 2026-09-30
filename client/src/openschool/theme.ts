@@ -1,6 +1,6 @@
 import type { ThemeDefinition } from '@librechat/client';
 
-/** Forest semantic tokens: OpenSchool 1411a61. Status/provider colors remain upstream. */
+/** OpenSchool forest semantic tokens. Status/provider colors remain upstream. */
 export const openSchoolTheme: ThemeDefinition = {
   version: 1,
   name: 'openschool-forest',

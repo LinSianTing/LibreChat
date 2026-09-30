@@ -1,10 +1,12 @@
 import { openSchoolDestinations, openSchoolOrigin } from './navigation';
 import { DEFAULT_APP_TITLE } from '~/utils/documentTitle';
+import { useGetStartupConfig } from '~/data-provider';
 import { useLocalize } from '~/hooks';
 
 export default function OpenSchoolLinks() {
   const localize = useLocalize();
-  const origin = openSchoolOrigin(import.meta.env.VITE_OPENSCHOOL_BASE_URL);
+  const { data: startupConfig } = useGetStartupConfig();
+  const origin = openSchoolOrigin(startupConfig?.openschoolReturnUrl);
   if (!origin) return null;
   return (
     <section aria-label="OpenSchool" className="shrink-0 border-b border-border-light p-3">
