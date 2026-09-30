@@ -50,6 +50,14 @@ code keeps upstream merges conflict-free.
 upstream releases; before any non-local exposure, re-audit and, if upstream has not caught up, add
 targeted `overrides` in a separate commit.
 
+2026-09-30 (branch `openschool/deps-audit`): minimal bump to meet the pre-real-model gate. `undici`
+`^7.29.0` -> `^7.29.1` (`api/package.json`, `packages/api/package.json`; resolves to 7.30.0) and
+`multer` `^2.3.0` -> `^2.4.0` (`api/package.json`; 2.4.0 no longer depends on `concat-stream`).
+No `npm audit fix`, no `overrides`, no other package touched. `npm audit --omit=dev` goes from 7 to 5
+findings; undici and multer are gone. Still open, with the original assessment unchanged: `nodemailer`
+(only relevant once email sending is enabled), `fast-uri`, `brace-expansion`, `ip-address`, `moment`
+(not reachable from the OpenSchool path or low risk). Re-audit before any non-local exposure.
+
 ## Building an image
 
 - `docker build -f openschool/Dockerfile -t openschool-librechat:<commit> .`
