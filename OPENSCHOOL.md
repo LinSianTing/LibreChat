@@ -124,6 +124,7 @@ Reproducible offline directed checks use existing image `openschool-chat:984626a
 **only inside the disposable container** to copy source into its ephemeral `/app`:
 
 ```powershell
+git archive --format=tar --output=.git/h3-baseline-client.tar 984626afd3683b291d4b7b3746fd0580604ed86c client
 docker run --rm --user 0:0 --network none --cpus 2 --memory 6g --mount "type=bind,source=<H3 checkout>,target=/h3,readonly" --entrypoint sh openschool-chat:984626a-local /h3/openschool/test-handoff.sh
 ```
 
@@ -131,9 +132,18 @@ The harness copies client source (the image omits it), rebuilds data-provider/ty
 BFF/config/socialLogin and client handoff/query/autosave/auth-redirect tests, then client tsc. Its
 Jest adapter substitutes the image's existing Babel presets/import.meta transform because the
 upstream client test plugins are absent from that image; no dependency was added or installed.
-Full client typecheck additionally requires the image-omitted existing Sandpack package. Browser
+Full client typecheck additionally requires the image-omitted existing Sandpack package; the harness
+compares its diagnostics with the fixed 984 client archive under the same dependencies and reports
+existing baseline failures explicitly, rather than claiming a green full typecheck. Browser
 Google OAuth, actual Web atomic/TTL/eligibility behavior, deployment HTTP/secret wiring, lighthouse
 and full production frontend build remain TL H4 verification. No paid model call was made.
+
+2026-10-01 H3 directed evidence (base 984626afd plus fixed deployed gate 7628b9e): data-provider
+build/type emission passed; API **180/180** and client **114/114** tests passed. Candidate full
+client tsc reported eight TS2307 diagnostics for missing existing Sandpack modules, **identical**
+to the fixed 984 client source under the same image dependencies; no H3 diagnostics remain. This
+is a baseline comparison, not a green full client typecheck. `git diff --check` passed; the normal
+merge retains 7628b9e as an actual ancestor and its socialLogin source/test blobs are unchanged.
 
 ## Building an image
 

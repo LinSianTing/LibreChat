@@ -93,7 +93,7 @@ beforeEach(() => {
   };
   mockText = '';
   mockFetch = jest.fn().mockResolvedValue(response());
-  global.fetch = mockFetch as typeof fetch;
+  global.fetch = Object.assign(mockFetch, { preconnect: jest.fn() });
   Object.defineProperty(AbortSignal, 'timeout', {
     configurable: true,
     value: jest.fn(() => new AbortController().signal),

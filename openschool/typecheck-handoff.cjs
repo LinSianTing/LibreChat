@@ -14,8 +14,7 @@ if (candidate.status === 0) {
   process.stdout.write('H3 full client typecheck: PASS\n');
   process.exit(0);
 }
-const archive = cp.execFileSync('git', ['-c', 'safe.directory=/h3', '-C', '/h3', 'archive',
-  '984626afd3683b291d4b7b3746fd0580604ed86c', 'client'], { maxBuffer: 64 * 1024 * 1024 });
+const archive = fs.readFileSync('/h3/.git/h3-baseline-client.tar');
 cp.execFileSync('tar', ['-xf', '-', '-C', '/app'], { input: archive });
 for (const file of [
   'hooks/Input/openschoolHandoff.ts', 'hooks/Input/useOpenSchoolHandoff.ts',
