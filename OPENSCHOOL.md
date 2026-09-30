@@ -23,12 +23,25 @@ LibreChat. LibreChat is MIT licensed; upstream is <https://github.com/danny-avil
 | Env var | File | What it does |
 |---|---|---|
 | `OPENSCHOOL_STRICT_SOCIAL_ID=true` | `api/strategies/socialLogin.js` | Social login continues an existing account only when the provider ID matches. An account found only by email is refused (`AUTH_FAILED`) instead of being taken over, and no provider ID is written. The admin path (`existingUsersOnly`) keeps the upstream handling. Off unless the value is exactly `true` (case-insensitive). |
+| `OPENSCHOOL_CHAT_ACCESS_URL=http://school:8080/ai-gateway/v1/chat-access` and `OPENSCHOOL_GATEWAY_KEY` | `api/strategies/socialLogin.js` | Opt-in Google eligibility check for both existing and new regular users, after strict subject collision checks and before user updates/creation. Sends one POST with `Authorization: Bearer <gateway key>`, `X-OpenSchool-Google-Sub` from the Passport-verified Google profile ID (never browser input), and `X-Forwarded-Proto: https`. Only HTTP 200 with a JSON object containing boolean `allowed: true` permits continuing. Missing key/subject, unverified email, redirects, non-200, malformed responses, network failures and a five-second deadline (including body parsing) deny with `AUTH_FAILED`. No retries or decision caching; new gate logs contain no subject, email, key or token. |
 | `OPENSCHOOL_RETURN_URL=<absolute http(s) URL>` | `api/server/routes/config.js`, `client/src/components/Messages/Content/Error/openschoolReturn.tsx` (+ one prop in `parts.tsx`, one call each in `ModelError.tsx` / `ProviderError.tsx`) | Published post-login as `openschoolReturnUrl` (only an http(s) URL without credentials, query or fragment). When a chat error's text contains exactly that URL, optionally with `?circle=<a-z0-9->`, the error shows a separate "返回開放學校共學圈" link (new tab, `noopener noreferrer`) rebuilt from the configured URL. The error text stays text; any other URL is ignored. Not offered outside the chat (search, shared links). |
 
 Why: OpenSchool's AI gateway trusts the Google subject that LibreChat forwards
 (`{{LIBRECHAT_USER_GOOGLEID}}`). Upstream falls back to email when the Google ID is not found, so a
 different Google account with the same email would be logged in as — and forwarded as — the
 existing user. See OpenSchool ADR-0000015 / SPEC-0000021 (in the OpenSchool repository).
+
+### Invitation-only adult mock demo
+
+Deploy the eligibility endpoint and key together with `OPENSCHOOL_STRICT_SOCIAL_ID=true`.
+`ALLOW_SOCIAL_REGISTRATION=true` may be enabled for this demo only when that gate is deployed and
+configured; the gate never enables registration itself. New accounts retain the ordinary `USER`
+schema default; eligibility response fields cannot grant roles. The OpenSchool endpoint owns the
+adult invitation decision. Keep the admin route blocked at the proxy: `existingUsersOnly` retains
+upstream behavior and does not consult this gate or acquire admin access from an eligibility result.
+An absent/empty gate URL preserves upstream login behavior. This check runs on each Google social
+login, not on existing sessions, refreshes, or individual chat requests; it is not session revocation.
+No proxy/deployment configuration is changed by this patch.
 
 ## Checks
 
@@ -38,7 +51,7 @@ cd api && npx jest strategies/socialLogin.test.js server/routes/__tests__/config
 cd client && npx jest src/components/Messages/Content/__tests__/OpenSchoolReturn.spec.tsx src/components/Messages/Content/__tests__/Error.spec.tsx
 ```
 
-Both env-only switches deliberately skip upstream's "new levers go in `configSchema`" rule, like
+These env-only switches deliberately skip upstream's "new levers go in `configSchema`" rule, like
 `CUSTOM_FOOTER`: they are OpenSchool deployment settings, and keeping them out of shared schema
 code keeps upstream merges conflict-free.
 

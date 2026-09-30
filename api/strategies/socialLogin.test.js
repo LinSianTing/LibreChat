@@ -557,6 +557,272 @@ describe('socialLogin', () => {
     });
   });
 
+  describe('OpenSchool fork: Google chat eligibility', () => {
+    const url = 'http://school:8080/ai-gateway/v1/chat-access';
+    const profile = {
+      id: 'verified-google-sub',
+      emails: [{ value: 'invited@example.com', verified: true }],
+      name: { givenName: 'Invited', familyName: 'Adult' },
+    };
+    const user = {
+      _id: 'invited-user',
+      email: profile.emails[0].value,
+      provider: 'google',
+      googleId: profile.id,
+      role: 'USER',
+    };
+    let originalEnv;
+    let fetchSpy;
+
+    const login = (callback, options = {}, details = profile, provider = 'google') =>
+      socialLogin(provider, mockGetProfileDetails, options)(
+        'private-access-token',
+        'private-refresh-token',
+        'private-id-token',
+        details,
+        callback,
+      );
+
+    const expectDenied = (callback) => {
+      expect(callback).toHaveBeenCalledTimes(1);
+      expect(callback).toHaveBeenCalledWith(
+        expect.objectContaining({ code: ErrorTypes.AUTH_FAILED }),
+      );
+      expect(handleExistingUser).not.toHaveBeenCalled();
+      expect(createSocialUser).not.toHaveBeenCalled();
+      expect(require('~/models').updateUser).not.toHaveBeenCalled();
+    };
+
+    beforeEach(() => {
+      originalEnv = { ...process.env };
+      process.env.OPENSCHOOL_CHAT_ACCESS_URL = url;
+      process.env.OPENSCHOOL_GATEWAY_KEY = 'private-gateway-key';
+      process.env.OPENSCHOOL_STRICT_SOCIAL_ID = 'true';
+      process.env.ALLOW_SOCIAL_REGISTRATION = 'true';
+      findUser.mockReset().mockResolvedValue(null);
+      createSocialUser.mockReset().mockResolvedValue({ ...user });
+      const { isEnabled, isEmailDomainAllowed } = require('@librechat/api');
+      isEnabled.mockImplementation((value) => value === 'true');
+      isEmailDomainAllowed.mockReturnValue(true);
+      fetchSpy = jest.spyOn(global, 'fetch').mockResolvedValue({
+        status: 200,
+        json: async () => ({ allowed: true }),
+      });
+    });
+
+    afterEach(() => {
+      process.env = originalEnv;
+      fetchSpy.mockRestore();
+      jest.useRealTimers();
+      require('@librechat/api').isEnabled.mockReturnValue(true);
+    });
+
+    it.each(['existing', 'new'])(
+      'checks and allows an invited %s user before writes',
+      async (kind) => {
+        if (kind === 'existing') {
+          findUser.mockResolvedValue({ ...user });
+        }
+        let resolveResponse;
+        fetchSpy.mockReturnValue(new Promise((resolve) => (resolveResponse = resolve)));
+        const callback = jest.fn();
+        const pending = login(callback);
+        // Flush the config and identity lookup promises, without resolving the eligibility request.
+        await new Promise((resolve) => setImmediate(resolve));
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(fetchSpy).toHaveBeenCalledWith(url, {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer private-gateway-key',
+            'X-OpenSchool-Google-Sub': profile.id,
+            'X-Forwarded-Proto': 'https',
+          },
+          signal: expect.any(AbortSignal),
+          redirect: 'error',
+        });
+        expect(callback).not.toHaveBeenCalled();
+        expect(handleExistingUser).not.toHaveBeenCalled();
+        expect(createSocialUser).not.toHaveBeenCalled();
+        resolveResponse({ status: 200, json: async () => ({ allowed: true, role: 'ADMIN' }) });
+        await pending;
+        expect(callback).toHaveBeenCalledWith(null, user, {
+          refreshToken: 'private-refresh-token',
+        });
+        if (kind === 'new') {
+          expect(createSocialUser).toHaveBeenCalledTimes(1);
+          expect(createSocialUser.mock.calls[0][0]).not.toHaveProperty('role');
+          expect(createSocialUser.mock.calls[0][0].providerId).toBe(profile.id);
+        } else {
+          expect(handleExistingUser).toHaveBeenCalledTimes(1);
+        }
+      },
+    );
+
+    describe.each(['existing', 'new'])('%s user fail-closed responses', (kind) => {
+      beforeEach(() => {
+        if (kind === 'existing') {
+          findUser.mockResolvedValue({ ...user });
+        }
+      });
+
+      it.each([
+        ['denied', 200, { allowed: false }],
+        ['missing decision', 200, {}],
+        ['truthy string', 200, { allowed: 'true' }],
+        ['truthy number', 200, { allowed: 1 }],
+        ['null', 200, null],
+        ['array', 200, [{ allowed: true }]],
+        ['primitive', 200, true],
+        ['other success status', 201, { allowed: true }],
+        ['empty response', 204, null],
+        ['redirect', 302, { allowed: true }],
+        ['unauthorized', 401, { allowed: true }],
+        ['forbidden', 403, { allowed: true }],
+        ['outage', 503, { allowed: true }],
+      ])('denies %s without retry or writes', async (_label, status, body) => {
+        fetchSpy.mockResolvedValue({ status, json: async () => body });
+        const callback = jest.fn();
+        await login(callback);
+        expectDenied(callback);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+      });
+
+      it.each(['network', 'json'])('sanitizes a %s failure', async (failure) => {
+        const error = new Error(
+          `${profile.id} ${user.email} private-gateway-key private-access-token private-id-token private-refresh-token`,
+        );
+        if (failure === 'network') {
+          fetchSpy.mockRejectedValue(error);
+        } else {
+          fetchSpy.mockResolvedValue({
+            status: 200,
+            json: async () => {
+              throw error;
+            },
+          });
+        }
+        const callback = jest.fn();
+        await login(callback);
+        expectDenied(callback);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(logger.warn).toHaveBeenCalledWith('[googleLogin] OpenSchool chat access denied');
+        expect(logger.error).not.toHaveBeenCalled();
+        expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('private-');
+        expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(profile.id);
+        expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(user.email);
+        expect(callback.mock.calls[0][0].message).toBe(ErrorTypes.AUTH_FAILED);
+      });
+
+      it.each(['request', 'body'])('bounds a stalled %s to 5s and aborts it', async (phase) => {
+        jest.useFakeTimers();
+        const stalled = new Promise(() => {});
+        fetchSpy.mockReturnValue(
+          phase === 'request' ? stalled : Promise.resolve({ status: 200, json: () => stalled }),
+        );
+        const callback = jest.fn();
+        const pending = login(callback);
+        await jest.advanceTimersByTimeAsync(4999);
+        expect(callback).not.toHaveBeenCalled();
+        await jest.advanceTimersByTimeAsync(1);
+        await pending;
+        expectDenied(callback);
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(fetchSpy.mock.calls[0][1].signal.aborted).toBe(true);
+        expect(jest.getTimerCount()).toBe(0);
+      });
+    });
+
+    it.each(['different-sub', undefined])(
+      'rejects email-only collision (%s) before the gate',
+      async (storedId) => {
+        findUser.mockResolvedValueOnce(null).mockResolvedValueOnce({ ...user, googleId: storedId });
+        const callback = jest.fn();
+        await login(callback);
+        expectDenied(callback);
+        expect(fetchSpy).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([undefined, '', ' '])(
+      'denies missing/blank gateway key (%s) without a request',
+      async (key) => {
+        if (key === undefined) {
+          delete process.env.OPENSCHOOL_GATEWAY_KEY;
+        } else {
+          process.env.OPENSCHOOL_GATEWAY_KEY = key;
+        }
+        const callback = jest.fn();
+        await login(callback);
+        expectDenied(callback);
+        expect(fetchSpy).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([undefined, '', 123, ' padded '])(
+      'denies invalid verified subject (%s)',
+      async (id) => {
+        const callback = jest.fn();
+        await login(callback, {}, { ...profile, id });
+        expectDenied(callback);
+        expect(fetchSpy).not.toHaveBeenCalled();
+      },
+    );
+
+    it('denies an unverified Google email', async () => {
+      const callback = jest.fn();
+      await login(callback, {}, { ...profile, emails: [{ value: user.email, verified: false }] });
+      expectDenied(callback);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not override disabled social registration', async () => {
+      process.env.ALLOW_SOCIAL_REGISTRATION = 'false';
+      const callback = jest.fn();
+      await login(callback);
+      expectDenied(callback);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([undefined, ''])(
+      'preserves upstream behavior without a gate URL (%s)',
+      async (urlValue) => {
+        if (urlValue === undefined) {
+          delete process.env.OPENSCHOOL_CHAT_ACCESS_URL;
+        } else {
+          process.env.OPENSCHOOL_CHAT_ACCESS_URL = urlValue;
+        }
+        delete process.env.OPENSCHOOL_GATEWAY_KEY;
+        const callback = jest.fn();
+        await login(callback);
+        expect(createSocialUser).toHaveBeenCalledTimes(1);
+        expect(fetchSpy).not.toHaveBeenCalled();
+      },
+    );
+
+    it('does not gate other social providers', async () => {
+      const callback = jest.fn();
+      await login(callback, {}, profile, 'github');
+      expect(createSocialUser).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('cannot authorize a new user through the unchanged admin login path', async () => {
+      const callback = jest.fn();
+      await login(callback, { existingUsersOnly: true });
+      expect(callback).toHaveBeenCalledWith(null, false, { message: 'User does not exist' });
+      expect(createSocialUser).not.toHaveBeenCalled();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('leaves existing admin login handling outside the gate', async () => {
+      findUser.mockResolvedValue({ ...user });
+      const callback = jest.fn();
+      await login(callback, { existingUsersOnly: true });
+      expect(handleExistingUser).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('OpenSchool fork: OPENSCHOOL_STRICT_SOCIAL_ID', () => {
     const provider = 'google';
     const email = 'same@example.com';
