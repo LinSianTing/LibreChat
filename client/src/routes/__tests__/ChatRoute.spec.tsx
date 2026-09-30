@@ -6,6 +6,7 @@ import type { TConversation } from 'librechat-data-provider';
 import ChatRoute from '../ChatRoute';
 
 const mockSetConversation = jest.fn();
+const mockSetDocumentTitle = jest.fn();
 const mockFetchConversation = jest.fn();
 const mockHasSetConversation = { current: true };
 let mockConversation: Partial<TConversation> = { conversationId: 'chat-a' };
@@ -69,6 +70,7 @@ jest.mock('@librechat/client', () => ({
   useToastContext: () => ({ showToast: jest.fn() }),
 }));
 jest.mock('~/utils', () => ({
+  setDocumentTitle: (...args: unknown[]) => mockSetDocumentTitle(...args),
   defaultSpecAwaitsAgents: () => false,
   processValidSettings: () => ({}),
   getDefaultModelSpec: () => ({}),
@@ -230,4 +232,19 @@ it('reconciles a remounted chat route with conversation state retained by the sh
   setup(['/c/chat-b']);
   await waitFor(() => expect(screen.getByTestId('composer')).toHaveTextContent('chat-b'));
   expect(mockFetchConversation).toHaveBeenCalledWith('chat-b');
+});
+
+it('restores the matching saved conversation title on direct route load', () => {
+  mockConversation = { conversationId: 'chat-a', title: 'Learning history' };
+  setup();
+  expect(mockSetDocumentTitle).toHaveBeenLastCalledWith('Learning history');
+});
+
+it('does not publish another route title while reconciling history', async () => {
+  mockConversation = { conversationId: 'chat-a', title: 'Private old title' };
+  const { router } = setup();
+  await act(async () => {
+    await router.navigate('/c/chat-b');
+  });
+  expect(mockSetDocumentTitle).toHaveBeenLastCalledWith(undefined);
 });

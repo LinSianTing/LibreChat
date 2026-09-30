@@ -12,6 +12,7 @@ import QueryDevtoolsGate from '~/components/QueryDevtoolsGate';
 import LanguageSync from '~/components/System/LanguageSync';
 import { getThemeFromEnv } from './utils/getThemeFromEnv';
 import { initializeFontSize } from '~/store/fontSize';
+import { openSchoolTheme } from './openschool/theme';
 import { LiveAnnouncer } from '~/a11y';
 import { router } from './routes';
 
@@ -52,15 +53,10 @@ const App = () => {
         <LanguageSync />
         <LiveAnnouncer>
           <ThemeProvider
-            // Only pass initialTheme and themeRGB if environment theme exists
-            // This allows localStorage values to persist when no env theme is set
-            {...(envTheme && { initialTheme: 'system', themeRGB: envTheme })}
+            // Explicit env colors retain precedence; forest uses the versioned theme registry.
+            {...(envTheme ? { themeRGB: envTheme } : { themeDefinition: openSchoolTheme })}
           >
-            {/* The ThemeProvider will automatically:
-                1. Apply dark/light mode classes
-                2. Apply custom theme colors if envTheme is provided
-                3. Otherwise use stored theme preferences from localStorage
-                4. Fall back to default theme colors if nothing is stored */}
+            {/* Preserve saved light/dark/system and high-contrast preferences. */}
             <RadixToast.Provider>
               <ToastProvider>
                 <DndProvider backend={HTML5Backend}>

@@ -1,4 +1,8 @@
 {
+  "com_openschool_workspace": "Return to workspace",
+  "com_openschool_courses": "Explore courses",
+  "com_openschool_schedule": "My schedule",
+  "com_openschool_circles": "AI learning circles",
   "com_ui_background_tasks": "Background tasks",
   "com_ui_background_tasks_cancel_disabled": "Stopping background tools is not enabled on this server",
   "com_ui_background_tasks_checked": "Checked background tasks",

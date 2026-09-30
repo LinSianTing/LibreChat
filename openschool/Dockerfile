@@ -8,6 +8,10 @@
 FROM node:24.16.0-bookworm
 
 ENV SCARF_ANALYTICS=false
+ENV APP_TITLE=OpenSchool-Chat
+# Trusted public origin, inlined into the frontend at build time.
+ARG VITE_OPENSCHOOL_BASE_URL=https://openschool.langracetech.com
+ENV VITE_OPENSCHOOL_BASE_URL=${VITE_OPENSCHOOL_BASE_URL}
 ARG NODE_MAX_OLD_SPACE_SIZE=6144
 
 RUN mkdir -p /app && chown node:node /app
