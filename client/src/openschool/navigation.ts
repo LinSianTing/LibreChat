@@ -1,6 +1,6 @@
-/** Trusted deployment origin; never sourced from URL queries or user profiles. */
+/** Origin of the server-configured return URL; never sourced from browser input. */
 export function openSchoolOrigin(value: string | undefined): string | null {
-  if (value === undefined) return 'https://openschool.langracetech.com';
+  if (!value) return null;
   try {
     const url = new URL(value);
     const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
@@ -9,8 +9,7 @@ export function openSchoolOrigin(value: string | undefined): string | null {
       url.username ||
       url.password ||
       url.search ||
-      url.hash ||
-      url.pathname !== '/'
+      url.hash
     )
       return null;
     return url.origin;
