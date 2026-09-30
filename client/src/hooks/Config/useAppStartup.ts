@@ -48,7 +48,7 @@ export default function useAppStartup({
     }
     document.title = appTitle;
     localStorage.setItem(LocalStorageKeys.APP_TITLE, appTitle);
-  }, [startupConfig]);
+  }, [startupConfig?.appTitle]);
 
   /** Set the default spec's preset as default */
   useEffect(() => {

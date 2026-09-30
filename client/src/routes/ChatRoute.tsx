@@ -17,6 +17,7 @@ import {
   isTemporaryConversation,
   logger,
   clearMessagesCache,
+  setDocumentTitle,
 } from '~/utils';
 import {
   useGetConvoIdQuery,
@@ -75,6 +76,16 @@ export default function ChatRoute() {
     setRouteState({ conversationId, pending: false });
   }
   useAppStartup({ startupConfig, user });
+  // A direct URL, reload or browser Back does not click a history item.
+  // Only publish a title belonging to the current route, after startup sets APP_TITLE.
+  useEffect(() => {
+    const activeTitle =
+      conversationId !== Constants.NEW_CONVO && conversation?.conversationId === conversationId
+        ? conversation.title
+        : undefined;
+    setDocumentTitle(activeTitle);
+  }, [conversationId, conversation?.conversationId, conversation?.title, startupConfig?.appTitle]);
+
   const { newConversation } = useNewConvo();
   const { showToast } = useToastContext();
   const localize = useLocalize();

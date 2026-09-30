@@ -1,4 +1,8 @@
 {
+  "com_openschool_workspace": "返回工作台",
+  "com_openschool_courses": "探索課程",
+  "com_openschool_schedule": "我的課表",
+  "com_openschool_circles": "AI共學圈",
   "chat_direction_left_to_right": "由左至右",
   "chat_direction_right_to_left": "由右至左",
   "com_a11y_ai_composing": "AI 仍在撰寫中",

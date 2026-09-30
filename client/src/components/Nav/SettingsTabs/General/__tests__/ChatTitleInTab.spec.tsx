@@ -69,7 +69,7 @@ describe('ChatTitleInTab', () => {
 
     expect(toggle).toBeChecked();
     expect(localStorage.getItem(CHAT_TITLE_IN_TAB_KEY)).toBe('true');
-    expect(document.title).toBe('Generated title');
+    expect(document.title).toBe('Generated title · LibreChat');
   });
 
   it('falls back to the matching Recoil conversation when the query cache is empty', () => {
@@ -85,7 +85,7 @@ describe('ChatTitleInTab', () => {
 
     expect(toggle).toBeChecked();
     expect(localStorage.getItem(CHAT_TITLE_IN_TAB_KEY)).toBe('true');
-    expect(document.title).toBe('Cached sidebar title');
+    expect(document.title).toBe('Cached sidebar title · LibreChat');
   });
 
   it('shows an existing conversation deliberately titled New Chat', () => {
@@ -101,7 +101,7 @@ describe('ChatTitleInTab', () => {
 
     expect(toggle).toBeChecked();
     expect(localStorage.getItem(CHAT_TITLE_IN_TAB_KEY)).toBe('true');
-    expect(document.title).toBe('New Chat');
+    expect(document.title).toBe('New Chat · LibreChat');
   });
 
   it('keeps the app title when enabling titles for a new chat', () => {

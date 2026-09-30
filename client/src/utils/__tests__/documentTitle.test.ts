@@ -20,7 +20,7 @@ describe('document title', () => {
   it('uses a conversation title when chat titles are enabled', () => {
     setDocumentTitle('Project status', true);
 
-    expect(document.title).toBe('Project status');
+    expect(document.title).toBe('Project status · LibreChat');
   });
 
   it('uses the app title when chat titles are disabled', () => {
@@ -38,7 +38,7 @@ describe('document title', () => {
   it('uses a conversation deliberately titled New Chat when enabled', () => {
     setDocumentTitle('New Chat', true);
 
-    expect(document.title).toBe('New Chat');
+    expect(document.title).toBe('New Chat · LibreChat');
   });
 
   it('keeps rejecting the generated new chat placeholder as a real title', () => {
@@ -50,7 +50,7 @@ describe('document title', () => {
 
     setDocumentTitle('', true);
 
-    expect(document.title).toBe('LibreChat');
+    expect(document.title).toBe('OpenSchool-Chat');
   });
 
   it('uses the default app title when the stored app title is empty', () => {
@@ -58,7 +58,7 @@ describe('document title', () => {
 
     setDocumentTitle('', true);
 
-    expect(document.title).toBe('LibreChat');
+    expect(document.title).toBe('OpenSchool-Chat');
   });
 
   it('uses the default app title when storage is unavailable', () => {
@@ -68,7 +68,7 @@ describe('document title', () => {
 
     setDocumentTitle('', true);
 
-    expect(document.title).toBe('LibreChat');
+    expect(document.title).toBe('OpenSchool-Chat');
   });
 
   it('defaults to enabled when the stored setting is malformed', () => {

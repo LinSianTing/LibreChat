@@ -1,7 +1,7 @@
 import { LocalStorageKeys } from 'librechat-data-provider';
 
 export const CHAT_TITLE_IN_TAB_KEY = 'chatTitleInTab';
-export const DEFAULT_APP_TITLE = 'LibreChat';
+export const DEFAULT_APP_TITLE = 'OpenSchool-Chat';
 
 export const hasRealTitle = (title?: string | null): title is string =>
   title != null && title !== '' && title !== 'New Chat';
@@ -32,5 +32,6 @@ export const isChatTitleInTabEnabled = (): boolean => {
  */
 export const setDocumentTitle = (title?: string | null, enabled?: boolean): void => {
   const showChatTitle = enabled ?? isChatTitleInTabEnabled();
-  document.title = showChatTitle && title != null && title !== '' ? title : getAppTitle();
+  document.title =
+    showChatTitle && title != null && title !== '' ? `${title} · ${getAppTitle()}` : getAppTitle();
 };
