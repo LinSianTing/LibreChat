@@ -47,8 +47,10 @@ const injectAgentIntoAgentsMap = (queryClient: QueryClient, agent: any) => {
  */
 export default function useQueryParams({
   textAreaRef,
+  blocked = false,
 }: {
   textAreaRef: React.RefObject<HTMLTextAreaElement>;
+  blocked?: boolean;
 }) {
   const maxAttempts = 50;
   const attemptsRef = useRef(0);
@@ -71,7 +73,8 @@ export default function useQueryParams({
   const queryClient = useQueryClient();
   const { conversation, newConversation } = useChatContext();
 
-  const urlAgentId = searchParams.get('agent_id') || '';
+  const urlAgentId =
+    blocked || searchParams.has('os_handoff') ? '' : searchParams.get('agent_id') || '';
   const { data: urlAgent } = useGetAgentByIdQuery(urlAgentId);
 
   const getPreservedSearchParams = useCallback(() => {
@@ -222,6 +225,9 @@ export default function useQueryParams({
    * Has internal guards to ensure it only executes once regardless of how many times it's called.
    */
   const processSubmission = useCallback(() => {
+    if (blocked || searchParams.has('os_handoff')) {
+      return;
+    }
     if (submissionHandledRef.current || !pendingSubmitRef.current || !promptTextRef.current) {
       return;
     }
@@ -239,9 +245,12 @@ export default function useQueryParams({
     })();
 
     setSearchParams(getPreservedSearchParams(), { replace: true });
-  }, [methods, submitMessage, setSearchParams, getPreservedSearchParams]);
+  }, [blocked, searchParams, methods, submitMessage, setSearchParams, getPreservedSearchParams]);
 
   useEffect(() => {
+    if (blocked || searchParams.has('os_handoff')) {
+      return;
+    }
     const processQueryParams = () => {
       const queryParams: Record<string, string> = {};
       searchParams.forEach((value, key) => {
@@ -358,6 +367,7 @@ export default function useQueryParams({
       }
     };
   }, [
+    blocked,
     searchParams,
     methods,
     textAreaRef,
@@ -374,6 +384,8 @@ export default function useQueryParams({
   useEffect(() => {
     // Only proceed if we've already processed URL parameters but haven't yet handled submission
     if (
+      blocked ||
+      searchParams.has('os_handoff') ||
       !processedRef.current ||
       submissionHandledRef.current ||
       settingsAppliedRef.current ||
@@ -396,7 +408,7 @@ export default function useQueryParams({
         processSubmission();
       }
     }
-  }, [conversation, processSubmission, areSettingsApplied]);
+  }, [blocked, searchParams, conversation, processSubmission, areSettingsApplied]);
 
   const { isAuthenticated } = useAuthContext();
   const agentsMap = useAgentsMap({ isAuthenticated });

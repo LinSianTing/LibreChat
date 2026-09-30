@@ -51,7 +51,9 @@ export default function useTextarea({
   allowSubmitWhileGenerating = false,
   onDuringRunModifier,
   answerModeActive = false,
+  privateDraft = false,
 }: {
+  privateDraft?: boolean;
   textAreaRef: React.RefObject<HTMLTextAreaElement>;
   submitButtonRef: React.RefObject<HTMLButtonElement>;
   setIsScrollable: React.Dispatch<React.SetStateAction<boolean>>;
@@ -424,7 +426,7 @@ export default function useTextarea({
         return;
       }
 
-      if (answerModeActive) {
+      if (answerModeActive || privateDraft) {
         return;
       }
 
@@ -628,6 +630,7 @@ export default function useTextarea({
       routeClipboardFiles,
       isUploadConfigPending,
       answerModeActive,
+      privateDraft,
       isSubmitting,
       saveDrafts,
     ],

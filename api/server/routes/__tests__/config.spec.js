@@ -962,6 +962,33 @@ describe('GET /api/config', () => {
 });
 
 /** OpenSchool fork (see OPENSCHOOL.md): the one page a refusal may link back to. */
+describe('GET /api/config openschoolPromptHandoffEnabled', () => {
+  afterEach(() => {
+    delete process.env.OPENSCHOOL_PROMPT_HANDOFF_ENABLED;
+    delete process.env.OPENSCHOOL_HANDOFF_GATEWAY_URL;
+    delete process.env.OPENSCHOOL_HANDOFF_GATEWAY_KEY;
+  });
+
+  it('publishes only a boolean post-login, never the server URL/key', async () => {
+    mockGetAppConfig.mockResolvedValue(baseAppConfig);
+    process.env.OPENSCHOOL_PROMPT_HANDOFF_ENABLED = 'true';
+    process.env.OPENSCHOOL_HANDOFF_GATEWAY_URL = 'http://private.test/consume';
+    process.env.OPENSCHOOL_HANDOFF_GATEWAY_KEY = 'private-key';
+    const signedIn = await request(createApp(mockUser)).get('/api/config');
+    const anonymous = await request(createApp()).get('/api/config');
+    expect(signedIn.body.openschoolPromptHandoffEnabled).toBe(true);
+    expect(anonymous.body).not.toHaveProperty('openschoolPromptHandoffEnabled');
+    expect(JSON.stringify(signedIn.body)).not.toMatch(/private\.test|private-key/);
+  });
+
+  it('defaults off', async () => {
+    mockGetAppConfig.mockResolvedValue(baseAppConfig);
+    delete process.env.OPENSCHOOL_PROMPT_HANDOFF_ENABLED;
+    const result = await request(createApp(mockUser)).get('/api/config');
+    expect(result.body.openschoolPromptHandoffEnabled).toBe(false);
+  });
+});
+
 describe('GET /api/config openschoolReturnUrl', () => {
   afterEach(() => {
     delete process.env.OPENSCHOOL_RETURN_URL;

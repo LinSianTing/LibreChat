@@ -175,6 +175,8 @@ function buildPostLoginPayload() {
       process.env.ALLOW_ACCOUNT_DELETION === undefined ||
       isEnabled(process.env.ALLOW_ACCOUNT_DELETION),
     openschoolReturnUrl: resolveOpenSchoolReturnUrl(process.env.OPENSCHOOL_RETURN_URL),
+    openschoolPromptHandoffEnabled:
+      process.env.OPENSCHOOL_PROMPT_HANDOFF_ENABLED?.toLowerCase() === 'true',
   };
 
   return payload;

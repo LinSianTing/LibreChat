@@ -77,6 +77,32 @@ beforeEach(() => {
 });
 
 describe('useAutoSave — conversation switching', () => {
+  it('private handoff never persists/restores text on input, switch or unmount', () => {
+    jest.useFakeTimers();
+    const textAreaRef = { current: document.createElement('textarea') };
+    textAreaRef.current.value = 'private draft';
+    const { rerender, unmount } = renderHook(
+      ({ conversationId }: { conversationId: string }) =>
+        useAutoSave({
+          disabled: true,
+          conversationId,
+          textAreaRef,
+          files: new Map(),
+          setFiles: jest.fn(),
+        }),
+      { initialProps: { conversationId: 'convo-1' } },
+    );
+    act(() => {
+      textAreaRef.current?.dispatchEvent(new Event('input', { bubbles: true }));
+      jest.advanceTimersByTime(1000);
+      rerender({ conversationId: 'convo-2' });
+    });
+    unmount();
+    expect(mockSetDraft).not.toHaveBeenCalled();
+    expect(mockSetValue).not.toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
   it('clears the textarea when switching to a conversation with no draft', () => {
     const { rerender } = renderHook(
       ({ conversationId }: { conversationId: string }) =>

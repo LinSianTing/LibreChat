@@ -12,6 +12,56 @@ const isStrictSocialId = () =>
     .trim()
     .toLowerCase() === 'true';
 
+/** OpenSchool deployment contract: one request, including body parsing, within five seconds. */
+const hasOpenSchoolChatAccess = async (url, subject, emailVerified) => {
+  const key = process.env.OPENSCHOOL_GATEWAY_KEY;
+  if (
+    !key?.trim() ||
+    typeof subject !== 'string' ||
+    !subject ||
+    subject.trim() !== subject ||
+    emailVerified !== true
+  ) {
+    return false;
+  }
+
+  const controller = new AbortController();
+  let timer;
+  try {
+    const deadline = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        resolve(false);
+        controller.abort();
+      }, 5000);
+    });
+    const eligibility = async () => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'X-OpenSchool-Google-Sub': subject,
+          'X-Forwarded-Proto': 'https',
+        },
+        signal: controller.signal,
+        redirect: 'error',
+      });
+      if (response.status !== 200) {
+        return false;
+      }
+      const body = await response.json();
+      return (
+        body !== null && typeof body === 'object' && !Array.isArray(body) && body.allowed === true
+      );
+    };
+    return await Promise.race([eligibility(), deadline]);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
+};
+
 const socialLogin =
   (provider, getProfileDetails, options = {}) =>
   async (accessToken, refreshToken, idToken, profile, cb) => {
@@ -59,6 +109,19 @@ const socialLogin =
         logger.warn(
           `[${provider}Login] Refused email-only match: ${providerKey} differs or is missing (OPENSCHOOL_STRICT_SOCIAL_ID)`,
         );
+        const error = new Error(ErrorTypes.AUTH_FAILED);
+        error.code = ErrorTypes.AUTH_FAILED;
+        return cb(error);
+      }
+
+      const chatAccessUrl = process.env.OPENSCHOOL_CHAT_ACCESS_URL;
+      if (
+        provider === 'google' &&
+        !options.existingUsersOnly &&
+        chatAccessUrl &&
+        !(await hasOpenSchoolChatAccess(chatAccessUrl, id, emailVerified))
+      ) {
+        logger.warn('[googleLogin] OpenSchool chat access denied');
         const error = new Error(ErrorTypes.AUTH_FAILED);
         error.code = ErrorTypes.AUTH_FAILED;
         return cb(error);

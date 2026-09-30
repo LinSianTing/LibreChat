@@ -50,7 +50,26 @@ const createTestRouter = (basename = '/', initialEntry?: string) => {
 
 describe('useAuthRedirect', () => {
   beforeEach(() => {
+    sessionStorage.clear();
     (window as any).__testResult = undefined;
+  });
+
+  it('handoff login redirect removes prompt/autosubmit and saves only ID/deadline', async () => {
+    (useAuthContext as jest.Mock).mockReturnValue({ user: null, isAuthenticated: false });
+    const id = 'a'.repeat(64);
+    const router = createTestRouter(
+      '/',
+      `/c/new?endpoint=OpenSchool&model=personal&os_handoff=${id}&prompt=secret&q=secret&submit=true`,
+    );
+    render(<RouterProvider router={router} />);
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
+    const redirect = new URLSearchParams(router.state.location.search).get('redirect_to')!;
+    expect(redirect).toContain(`os_handoff=${id}`);
+    expect(redirect).not.toMatch(/secret|prompt=|q=|submit=/);
+    expect(Object.keys(JSON.parse(sessionStorage.getItem('openschool.prompt-handoff')!))).toEqual([
+      'id',
+      'expiresAt',
+    ]);
   });
 
   afterEach(() => {

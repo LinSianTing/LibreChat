@@ -207,6 +207,39 @@ describe('useQueryParams', () => {
     (useSearchParams as jest.Mock).mockReturnValue([searchParams, jest.fn()]);
   };
 
+  it.each([false, true])('handoff blocks URL prompt and autosubmit (blocked=%s)', (blocked) => {
+    setUrlParams({
+      os_handoff: 'a'.repeat(64),
+      endpoint: 'OpenSchool',
+      model: 'personal',
+      prompt: 'must not fill',
+      q: 'must not fill',
+      submit: 'true',
+      autosubmit: 'true',
+    });
+    const textAreaRef = { current: document.createElement('textarea') };
+    renderHook(() => useQueryParams({ textAreaRef, blocked }));
+    act(() => jest.advanceTimersByTime(10000));
+    const methods = (useChatFormContext as jest.Mock).mock.results[0].value;
+    expect(methods.setValue).not.toHaveBeenCalled();
+    expect(methods.handleSubmit).not.toHaveBeenCalled();
+    expect(
+      (useSubmitMessage as jest.Mock).mock.results[0].value.submitMessage,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('keeps handoff blocked after URL cleanup', () => {
+    setUrlParams({ prompt: 'must not fill', submit: 'true' });
+    const textAreaRef = { current: document.createElement('textarea') };
+    renderHook(() => useQueryParams({ textAreaRef, blocked: true }));
+    act(() => jest.advanceTimersByTime(10000));
+    const methods = (useChatFormContext as jest.Mock).mock.results[0].value;
+    expect(methods.setValue).not.toHaveBeenCalled();
+    expect(
+      (useSubmitMessage as jest.Mock).mock.results[0].value.submitMessage,
+    ).not.toHaveBeenCalled();
+  });
+
   // Test cases remain the same
   it('should process query parameters on initial render', () => {
     // Setup

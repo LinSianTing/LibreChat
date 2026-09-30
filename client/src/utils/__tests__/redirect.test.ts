@@ -185,6 +185,19 @@ describe('persistRedirectToSession', () => {
     sessionStorage.clear();
   });
 
+  it('handoff persists only opaque ID/deadline and a clean chat return path', () => {
+    const id = 'a'.repeat(64);
+    persistRedirectToSession(
+      `/c/new?endpoint=OpenSchool&model=personal&os_handoff=${id}&prompt=secret&submit=true`,
+    );
+    expect(sessionStorage.getItem(SESSION_KEY)).toBe('/c/new');
+    expect(JSON.parse(sessionStorage.getItem('openschool.prompt-handoff')!)).toEqual({
+      id,
+      expiresAt: expect.any(Number),
+    });
+    expect(JSON.stringify(sessionStorage)).not.toMatch(/secret|prompt=|submit=/);
+  });
+
   it('stores a valid relative path', () => {
     persistRedirectToSession('/c/new?q=hello');
     expect(sessionStorage.getItem(SESSION_KEY)).toBe('/c/new?q=hello');

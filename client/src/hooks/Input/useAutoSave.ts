@@ -37,7 +37,9 @@ export const useAutoSave = ({
   textAreaRef,
   setFiles,
   files,
+  disabled = false,
 }: {
+  disabled?: boolean;
   index?: number;
   isSubmitting?: boolean;
   conversationId?: string | null;
@@ -54,7 +56,10 @@ export const useAutoSave = ({
 }) => {
   // setting for auto-save
   const { setValue } = useChatFormContext();
-  const saveDrafts = useRecoilValue<boolean>(store.saveDrafts);
+  const saveDraftsPreference = useRecoilValue<boolean>(store.saveDrafts);
+  const saveDrafts = saveDraftsPreference && !disabled;
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
   const pendingDraftId = getPendingDraftId(index);
   const conversationDraftId =
     _conversationId === Constants.NEW_CONVO ? getNewConversationDraftId(index) : _conversationId;
@@ -178,6 +183,9 @@ export const useAutoSave = ({
 
   const restoreText = useCallback(
     (id: string, pendingPastes: PendingTextAttachmentDraft[] = []) => {
+      if (disabledRef.current) {
+        return;
+      }
       const draftText = applyPendingPastesToDraft(getDraft(id) ?? '', pendingPastes);
 
       if (pendingPastes.length > 0) {
@@ -190,7 +198,7 @@ export const useAutoSave = ({
 
   const saveText = useCallback(
     (id: string) => {
-      if (!textAreaRef?.current) {
+      if (disabledRef.current || !textAreaRef?.current) {
         return;
       }
       // Save the draft of the current conversation before switching
@@ -229,8 +237,11 @@ export const useAutoSave = ({
      * when the event fired. A during-run steer/queue consumes the text and
      * clears the composer programmatically, so a write still in flight would
      * otherwise land after the submit and restore the just-sent text. */
-    const saveLatest = () =>
-      setDraft({ id: draftStorageId, value: textAreaRef?.current?.value ?? '' });
+    const saveLatest = () => {
+      if (!disabledRef.current) {
+        setDraft({ id: draftStorageId, value: textAreaRef?.current?.value ?? '' });
+      }
+    };
 
     /** Use shorter debounce for saving text (25ms) to capture rapid typing */
     const handleInputFast = debounce(saveLatest, 25);

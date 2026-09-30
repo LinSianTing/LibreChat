@@ -23,12 +23,25 @@ LibreChat. LibreChat is MIT licensed; upstream is <https://github.com/danny-avil
 | Env var | File | What it does |
 |---|---|---|
 | `OPENSCHOOL_STRICT_SOCIAL_ID=true` | `api/strategies/socialLogin.js` | Social login continues an existing account only when the provider ID matches. An account found only by email is refused (`AUTH_FAILED`) instead of being taken over, and no provider ID is written. The admin path (`existingUsersOnly`) keeps the upstream handling. Off unless the value is exactly `true` (case-insensitive). |
+| `OPENSCHOOL_CHAT_ACCESS_URL=http://school:8080/ai-gateway/v1/chat-access` and `OPENSCHOOL_GATEWAY_KEY` | `api/strategies/socialLogin.js` | Opt-in Google eligibility check for both existing and new regular users, after strict subject collision checks and before user updates/creation. Sends one POST with `Authorization: Bearer <gateway key>`, `X-OpenSchool-Google-Sub` from the Passport-verified Google profile ID (never browser input), and `X-Forwarded-Proto: https`. Only HTTP 200 with a JSON object containing boolean `allowed: true` permits continuing. Missing key/subject, unverified email, redirects, non-200, malformed responses, network failures and a five-second deadline (including body parsing) deny with `AUTH_FAILED`. No retries or decision caching; new gate logs contain no subject, email, key or token. |
 | `OPENSCHOOL_RETURN_URL=<absolute http(s) URL>` | `api/server/routes/config.js`, `client/src/components/Messages/Content/Error/openschoolReturn.tsx` (+ one prop in `parts.tsx`, one call each in `ModelError.tsx` / `ProviderError.tsx`) | Published post-login as `openschoolReturnUrl` (only an http(s) URL without credentials, query or fragment). When a chat error's text contains exactly that URL, optionally with `?circle=<a-z0-9->`, the error shows a separate "返回開放學校共學圈" link (new tab, `noopener noreferrer`) rebuilt from the configured URL. The error text stays text; any other URL is ignored. Not offered outside the chat (search, shared links). |
 
 Why: OpenSchool's AI gateway trusts the Google subject that LibreChat forwards
 (`{{LIBRECHAT_USER_GOOGLEID}}`). Upstream falls back to email when the Google ID is not found, so a
 different Google account with the same email would be logged in as — and forwarded as — the
 existing user. See OpenSchool ADR-0000015 / SPEC-0000021 (in the OpenSchool repository).
+
+### Invitation-only adult mock demo
+
+Deploy the eligibility endpoint and key together with `OPENSCHOOL_STRICT_SOCIAL_ID=true`.
+`ALLOW_SOCIAL_REGISTRATION=true` may be enabled for this demo only when that gate is deployed and
+configured; the gate never enables registration itself. New accounts retain the ordinary `USER`
+schema default; eligibility response fields cannot grant roles. The OpenSchool endpoint owns the
+adult invitation decision. Keep the admin route blocked at the proxy: `existingUsersOnly` retains
+upstream behavior and does not consult this gate or acquire admin access from an eligibility result.
+An absent/empty gate URL preserves upstream login behavior. This check runs on each Google social
+login, not on existing sessions, refreshes, or individual chat requests; it is not session revocation.
+No proxy/deployment configuration is changed by this patch.
 
 ## Checks
 
@@ -38,7 +51,7 @@ cd api && npx jest strategies/socialLogin.test.js server/routes/__tests__/config
 cd client && npx jest src/components/Messages/Content/__tests__/OpenSchoolReturn.spec.tsx src/components/Messages/Content/__tests__/Error.spec.tsx
 ```
 
-Both env-only switches deliberately skip upstream's "new levers go in `configSchema`" rule, like
+These env-only switches deliberately skip upstream's "new levers go in `configSchema`" rule, like
 `CUSTOM_FOOTER`: they are OpenSchool deployment settings, and keeping them out of shared schema
 code keeps upstream merges conflict-free.
 
@@ -57,6 +70,70 @@ No `npm audit fix`, no `overrides`, no other package touched. `npm audit --omit=
 findings; undici and multer are gone. Still open, with the original assessment unchanged: `nodemailer`
 (only relevant once email sending is enabled), `fast-uri`, `brace-expansion`, `ip-address`, `moment`
 (not reachable from the OpenSchool path or low risk). Re-audit before any non-local exposure.
+
+## Private prompt handoff (H3, default off)
+
+H3 implementation branch: `openschool/prompt-handoff`, base
+`984626afd3683b291d4b7b3746fd0580604ed86c`. The actual deployed Chat source reported by Eric is
+`7628b9e79b434fdc465a4f2156d721cafd92bb85` (image `000d9a9b`). That commit is the direct child of
+984626afd and adds the invitation guard in `socialLogin.js`, its tests and this document.
+H3 carries those two source/test files **exactly from 7628b9e**, preserving the existing
+`OPENSCHOOL_CHAT_ACCESS_URL` / `OPENSCHOOL_GATEWAY_KEY` gate. Eric subsequently authorized a normal
+merge of fixed 7628b9e after the H3 implementation commit so the final integration head retains
+the deployed source as an actual Git ancestor (required by `check-release`). No rebase, push,
+image build, source-pin change or service change is part of H3. TL must review the final head,
+verify that ancestry and gate checks pass, and formally update the source pin before release.
+
+Server configuration (not browser or `librechat.yaml` input):
+
+- `OPENSCHOOL_PROMPT_HANDOFF_ENABLED=true` enables the BFF; default off. Authenticated startup
+  config publishes only boolean `openschoolPromptHandoffEnabled`, never the gateway URL/key.
+- `OPENSCHOOL_HANDOFF_GATEWAY_URL` is the **complete** Web consume URL, e.g.
+  `http://school:8080/ai-gateway/v1/prompt-handoff/consume`.
+- `OPENSCHOOL_HANDOFF_GATEWAY_KEY` supplies its Bearer credential. **No fallback** to
+  `OPENSCHOOL_GATEWAY_KEY`: the deployment helper must provide the explicit handoff key. The
+  invitation guard retains its existing key name independently.
+- With server `DOMAIN_CLIENT=https://...`, BFF sets fixed `X-Forwarded-Proto: https` for Web's
+  HTTPS middleware. Browser headers cannot override it. The BFF never follows redirects.
+- Configure `OPENSCHOOL_RETURN_URL` to offer the existing trusted OpenSchool return link in error UX.
+
+Contract: `/c/new?endpoint=OpenSchool&model=personal` (or `circle-<code>`)
+`&os_handoff=<64 lowercase hex>`. The ID is bound/authorized and atomically consumed by **Web**;
+the Chat BFF cannot grant access, extend Web TTL or authorize a Send. Authenticated
+`POST /api/openschool/handoff` accepts only `{id}`, derives Google subject from `req.user.googleId`,
+and forwards a single JSON POST with a five-second deadline, bounded response body, no retry or
+redirect. JWT, existing origin guard, explicit origin/JSON checks and strict body shape all apply.
+No prompt, ID, subject, credential or full error response is logged by this implementation.
+
+Only `{id, expiresAt}` survives OAuth in sessionStorage (ten-minute local upper bound; Web's expiry
+is authoritative). Prompt text stays in memory. URL prompt/q/submit/autosubmit are blocked, the ID
+is removed from the URL on dispatch, and success/failure clears storage except a 401 that permits
+same-account login recovery. StrictMode reuses one promise. Model discovery precedes consume;
+prefill waits for an initialized new OpenSchool conversation and the returned model. Existing text
+requires explicit append/cancel; text arriving during model initialization requires confirmation
+again. The hook never calls submitMessage. Handoff composers disable local draft saving and long
+text-to-file paste conversion; received prompt is discarded from hook memory after prefill,
+cancellation, expiry or failure. Review/edit and ordinary explicit Send remain user actions.
+
+Fork exceptions follow the deployment-only patches above: an isolated CJS route and env-only
+switch minimize upstream integration changes; English and Traditional Chinese strings are both
+required by the H3 assignment, rather than relying on upstream's translation automation.
+
+Reproducible offline directed checks use existing image `openschool-chat:984626a-local`, two CPUs,
+6 GiB memory, a read-only checkout mount, no network/ports, and existing dependencies. Run as root
+**only inside the disposable container** to copy source into its ephemeral `/app`:
+
+```powershell
+docker run --rm --user 0:0 --network none --cpus 2 --memory 6g --mount "type=bind,source=<H3 checkout>,target=/h3,readonly" --entrypoint sh openschool-chat:984626a-local /h3/openschool/test-handoff.sh
+```
+
+The harness copies client source (the image omits it), rebuilds data-provider/types, runs directed
+BFF/config/socialLogin and client handoff/query/autosave/auth-redirect tests, then client tsc. Its
+Jest adapter substitutes the image's existing Babel presets/import.meta transform because the
+upstream client test plugins are absent from that image; no dependency was added or installed.
+Full client typecheck additionally requires the image-omitted existing Sandpack package. Browser
+Google OAuth, actual Web atomic/TTL/eligibility behavior, deployment HTTP/secret wiring, lighthouse
+and full production frontend build remain TL H4 verification. No paid model call was made.
 
 ## Building an image
 

@@ -2504,6 +2504,7 @@ export type TStartupConfig = {
   customFooter?: string;
   /** OpenSchool fork: the only URL a refusal's return link may point to (post-login only). */
   openschoolReturnUrl?: string;
+  openschoolPromptHandoffEnabled?: boolean;
   modelSpecs?: TSpecsConfig;
   modelDescriptions?: Record<string, Record<string, string>>;
   sharedLinksEnabled: boolean;

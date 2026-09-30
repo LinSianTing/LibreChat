@@ -1,3 +1,5 @@
+import { captureHandoff, safeHandoffParams } from '~/hooks/Input/openschoolHandoff';
+
 export const REDIRECT_PARAM = 'redirect_to';
 export const SESSION_KEY = 'post_login_redirect_to';
 
@@ -31,11 +33,23 @@ export function getPostLoginRedirect(searchParams: URLSearchParams): string | nu
     return null;
   }
 
+  const url = new URL(target, window.location.origin);
+  if (url.searchParams.has('os_handoff')) {
+    const captured = captureHandoff(safeHandoffParams(url.searchParams));
+    return captured.error ? `/c/new?${safeHandoffParams(url.searchParams)}` : '/c/new';
+  }
+
   return target;
 }
 
 export function persistRedirectToSession(value: string): void {
   if (isSafeRedirect(value)) {
+    const url = new URL(value, window.location.origin);
+    if (url.searchParams.has('os_handoff')) {
+      captureHandoff(safeHandoffParams(url.searchParams));
+      sessionStorage.setItem(SESSION_KEY, '/c/new');
+      return;
+    }
     sessionStorage.setItem(SESSION_KEY, value);
   }
 }

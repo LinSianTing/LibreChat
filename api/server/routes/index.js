@@ -31,6 +31,7 @@ const models = require('./models');
 const convos = require('./convos');
 const traces = require('./traces');
 const config = require('./config');
+const openschool = require('./openschool');
 const agents = require('./agents');
 const roles = require('./roles');
 const oauth = require('./oauth');
@@ -75,6 +76,7 @@ module.exports = {
   traces,
   search,
   config,
+  openschool,
   models,
   prompts,
   projects,

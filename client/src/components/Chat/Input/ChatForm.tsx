@@ -70,6 +70,8 @@ import EditBadges from './EditBadges';
 import BadgeRow from './BadgeRow';
 import Mention from './Mention';
 import store from '~/store';
+import useOpenSchoolHandoff from '~/hooks/Input/useOpenSchoolHandoff';
+import OpenSchoolHandoff from './OpenSchoolHandoff';
 
 export function toRestoredComposerFile(
   file: NonNullable<TMessage['files']>[number],
@@ -280,7 +282,9 @@ const ChatForm = memo(function ChatForm({
    *  collapsed batch is neither — it hands the composer back to the thread. */
   const composerReserved = answerMode.composerAnswers || answerMode.composerLocked;
 
+  const handoff = useOpenSchoolHandoff({ textAreaRef, enabled: index === 0 });
   const consumeDraft = useAutoSave({
+    disabled: handoff.active,
     index,
     files,
     setFiles,
@@ -517,9 +521,10 @@ const ChatForm = memo(function ChatForm({
     allowSubmitWhileGenerating: steering.duringRunActive,
     onDuringRunModifier: steering.duringRunActive ? handleDuringRunModifier : undefined,
     answerModeActive: answerMode.composerAnswers,
+    privateDraft: handoff.active,
   });
 
-  useQueryParams({ textAreaRef });
+  useQueryParams({ textAreaRef, blocked: handoff.active });
 
   /** Attachments stand in for text only on the normal send path. Answer mode
    *  hands the composer text straight to the paused run, which answers with
@@ -652,6 +657,7 @@ const ChatForm = memo(function ChatForm({
       )}
     >
       <div className="relative flex h-full min-w-0 flex-1 items-stretch md:flex-col">
+        {index === 0 && <OpenSchoolHandoff handoff={handoff} />}
         {/* Primary composer owns the selection popup so split-view doesn't double it. */}
         {index === 0 && quotesEnabled && <QuoteButton conversationId={conversationId} />}
         {/* `relative` anchors the in-flight steer overlay, which floats above
