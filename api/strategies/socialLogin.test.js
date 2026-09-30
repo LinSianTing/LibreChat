@@ -556,4 +556,128 @@ describe('socialLogin', () => {
       });
     });
   });
+
+  describe('OpenSchool fork: OPENSCHOOL_STRICT_SOCIAL_ID', () => {
+    const provider = 'google';
+    const email = 'same@example.com';
+    const profileFor = (id) => ({
+      id,
+      emails: [{ value: email, verified: true }],
+      photos: [{ value: null }],
+      name: { givenName: 'Other', familyName: 'Person' },
+    });
+    const original = process.env.OPENSCHOOL_STRICT_SOCIAL_ID;
+
+    afterEach(() => {
+      if (original === undefined) {
+        delete process.env.OPENSCHOOL_STRICT_SOCIAL_ID;
+      } else {
+        process.env.OPENSCHOOL_STRICT_SOCIAL_ID = original;
+      }
+    });
+
+    it('refuses an account found only by email when a different provider ID logs in', async () => {
+      process.env.OPENSCHOOL_STRICT_SOCIAL_ID = 'true';
+      const { updateUser } = require('~/models');
+      const existingUser = { _id: 'userA', email, provider: 'google', googleId: 'sub-A' };
+      findUser.mockResolvedValueOnce(null).mockResolvedValueOnce(existingUser);
+      const callback = jest.fn();
+
+      await socialLogin(provider, mockGetProfileDetails)(
+        null,
+        null,
+        null,
+        profileFor('sub-B'),
+        callback,
+      );
+
+      const [error, user] = callback.mock.calls[0];
+      expect(error.code).toBe(ErrorTypes.AUTH_FAILED);
+      expect(user).toBeUndefined();
+      expect(handleExistingUser).not.toHaveBeenCalled();
+      expect(createSocialUser).not.toHaveBeenCalled();
+      expect(updateUser).not.toHaveBeenCalled();
+      expect(existingUser.googleId).toBe('sub-A');
+    });
+
+    it('refuses an account without any provider ID that shares the email', async () => {
+      process.env.OPENSCHOOL_STRICT_SOCIAL_ID = 'TRUE';
+      const localUser = { _id: 'userL', email, provider: 'google' };
+      findUser.mockResolvedValueOnce(null).mockResolvedValueOnce(localUser);
+      const callback = jest.fn();
+
+      await socialLogin(provider, mockGetProfileDetails)(
+        null,
+        null,
+        null,
+        profileFor('sub-C'),
+        callback,
+      );
+
+      expect(callback.mock.calls[0][0].code).toBe(ErrorTypes.AUTH_FAILED);
+      expect(handleExistingUser).not.toHaveBeenCalled();
+    });
+
+    it('still continues the account whose provider ID matches', async () => {
+      process.env.OPENSCHOOL_STRICT_SOCIAL_ID = 'true';
+      const existingUser = { _id: 'userA', email, provider: 'google', googleId: 'sub-A' };
+      findUser.mockResolvedValueOnce(existingUser);
+      const callback = jest.fn();
+
+      await socialLogin(provider, mockGetProfileDetails)(
+        null,
+        null,
+        null,
+        profileFor('sub-A'),
+        callback,
+      );
+
+      expect(findUser).toHaveBeenCalledTimes(1);
+      expect(handleExistingUser).toHaveBeenCalled();
+      expect(callback).toHaveBeenCalledWith(null, existingUser);
+    });
+
+    it('keeps the upstream email fallback when the variable is unset or not "true"', async () => {
+      for (const value of [undefined, '', 'false', '1', 'yes']) {
+        jest.clearAllMocks();
+        if (value === undefined) {
+          delete process.env.OPENSCHOOL_STRICT_SOCIAL_ID;
+        } else {
+          process.env.OPENSCHOOL_STRICT_SOCIAL_ID = value;
+        }
+        const existingUser = { _id: 'userA', email, provider: 'google', googleId: 'sub-A' };
+        findUser.mockResolvedValueOnce(null).mockResolvedValueOnce(existingUser);
+        const callback = jest.fn();
+
+        await socialLogin(provider, mockGetProfileDetails)(
+          null,
+          null,
+          null,
+          profileFor('sub-B'),
+          callback,
+        );
+
+        expect(callback).toHaveBeenCalledWith(null, existingUser);
+      }
+    });
+
+    it('leaves the admin path (existingUsersOnly) to the upstream handling', async () => {
+      process.env.OPENSCHOOL_STRICT_SOCIAL_ID = 'true';
+      const { updateUser } = require('~/models');
+      const existingUser = { _id: 'admin1', email, provider: 'google' };
+      findUser.mockResolvedValueOnce(null).mockResolvedValueOnce(existingUser);
+      const callback = jest.fn();
+
+      await socialLogin(provider, mockGetProfileDetails, { existingUsersOnly: true })(
+        null,
+        null,
+        null,
+        profileFor('sub-admin'),
+        callback,
+      );
+
+      expect(updateUser).toHaveBeenCalledWith('admin1', { googleId: 'sub-admin' });
+      expect(callback).toHaveBeenCalledWith(null, existingUser);
+    });
+  });
 });

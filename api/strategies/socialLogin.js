@@ -1,9 +1,16 @@
+/* OpenSchool fork patch: OPENSCHOOL_STRICT_SOCIAL_ID (see OPENSCHOOL.md on branch openschool/main). LibreChat is MIT licensed. */
 const { logger } = require('@librechat/data-schemas');
 const { ErrorTypes } = require('librechat-data-provider');
 const { isEnabled, isEmailDomainAllowed, resolveAppConfigForUser } = require('@librechat/api');
 const { createSocialUser, handleExistingUser } = require('./process');
 const { getAppConfig } = require('~/server/services/Config');
 const { findUser, updateUser } = require('~/models');
+
+/** OpenSchool fork: opt-in, off unless the env var is exactly "true" (case-insensitive). */
+const isStrictSocialId = () =>
+  String(process.env.OPENSCHOOL_STRICT_SOCIAL_ID ?? '')
+    .trim()
+    .toLowerCase() === 'true';
 
 const socialLogin =
   (provider, getProfileDetails, options = {}) =>
@@ -32,6 +39,7 @@ const socialLogin =
       if (id && typeof id === 'string') {
         existingUser = await findUser({ [providerKey]: id });
       }
+      const foundByProviderId = Boolean(existingUser);
 
       /** If not found by provider ID, try finding by email */
       if (!existingUser) {
@@ -39,6 +47,21 @@ const socialLogin =
         if (existingUser) {
           logger.warn(`[${provider}Login] User found by email: ${email} but not by ${providerKey}`);
         }
+      }
+
+      /**
+       * OpenSchool fork (see OPENSCHOOL.md): the same email is not proof of the same person.
+       * With OPENSCHOOL_STRICT_SOCIAL_ID=true a regular social login only continues an account whose
+       * provider ID matches exactly; an account found only by email is refused, never taken over or
+       * re-linked. The admin path (existingUsersOnly) keeps the upstream handling.
+       */
+      if (existingUser && !foundByProviderId && !options.existingUsersOnly && isStrictSocialId()) {
+        logger.warn(
+          `[${provider}Login] Refused email-only match: ${providerKey} differs or is missing (OPENSCHOOL_STRICT_SOCIAL_ID)`,
+        );
+        const error = new Error(ErrorTypes.AUTH_FAILED);
+        error.code = ErrorTypes.AUTH_FAILED;
+        return cb(error);
       }
 
       const appConfig = existingUser?.tenantId
