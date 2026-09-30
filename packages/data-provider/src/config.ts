@@ -2502,6 +2502,8 @@ export type TStartupConfig = {
   /** Admin panel link, only present for users with admin access */
   adminPanelURL?: string;
   customFooter?: string;
+  /** OpenSchool fork: the only URL a refusal's return link may point to (post-login only). */
+  openschoolReturnUrl?: string;
   modelSpecs?: TSpecsConfig;
   modelDescriptions?: Record<string, Record<string, string>>;
   sharedLinksEnabled: boolean;

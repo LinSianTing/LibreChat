@@ -133,6 +133,27 @@ function buildPublicSharePayload() {
 }
 
 /**
+ * OpenSchool fork (see OPENSCHOOL.md): the one OpenSchool page a refusal may link back to.
+ * Only an absolute http(s) URL without credentials, query or fragment is published; anything else
+ * publishes nothing, so no return link is offered.
+ */
+function resolveOpenSchoolReturnUrl(value) {
+  if (typeof value !== 'string' || value.trim() === '') {
+    return undefined;
+  }
+  try {
+    const url = new URL(value.trim());
+    const httpLike = url.protocol === 'http:' || url.protocol === 'https:';
+    if (!httpLike || url.username || url.password || url.search || url.hash) {
+      return undefined;
+    }
+    return url.href;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Post-login fields appended only when `req.user` is present. These describe the
  * authenticated UX (account-settings links, share-link feature flags, birthday icon,
  * openid token-reuse marker) and are not needed on the pre-login screens, so they
@@ -153,6 +174,7 @@ function buildPostLoginPayload() {
     allowAccountDeletion:
       process.env.ALLOW_ACCOUNT_DELETION === undefined ||
       isEnabled(process.env.ALLOW_ACCOUNT_DELETION),
+    openschoolReturnUrl: resolveOpenSchoolReturnUrl(process.env.OPENSCHOOL_RETURN_URL),
   };
 
   return payload;

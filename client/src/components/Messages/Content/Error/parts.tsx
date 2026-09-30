@@ -311,10 +311,13 @@ export function ErrorWithDetail({
   headline,
   detail,
   label,
+  action,
 }: {
   headline: string;
   detail?: string;
   label: string;
+  /** OpenSchool fork: a control rendered under the detail (the detail itself stays text). */
+  action?: React.ReactNode;
 }) {
   if (detail == null) {
     return <>{headline}</>;
@@ -328,6 +331,7 @@ export function ErrorWithDetail({
       ) : (
         <ErrorDetails label={label}>{detail}</ErrorDetails>
       )}
+      {action != null && <ErrorActions>{action}</ErrorActions>}
     </ErrorBody>
   );
 }

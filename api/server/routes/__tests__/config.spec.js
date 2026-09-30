@@ -960,3 +960,38 @@ describe('GET /api/config', () => {
     });
   });
 });
+
+/** OpenSchool fork (see OPENSCHOOL.md): the one page a refusal may link back to. */
+describe('GET /api/config openschoolReturnUrl', () => {
+  afterEach(() => {
+    delete process.env.OPENSCHOOL_RETURN_URL;
+  });
+
+  it('publishes a valid http(s) URL to signed-in users only', async () => {
+    mockGetAppConfig.mockResolvedValue(baseAppConfig);
+    process.env.OPENSCHOOL_RETURN_URL = 'http://127.0.0.1:5199/simulation/ai-circles';
+
+    const signedIn = await request(createApp(mockUser)).get('/api/config');
+    const anonymous = await request(createApp(null)).get('/api/config');
+
+    expect(signedIn.body.openschoolReturnUrl).toBe('http://127.0.0.1:5199/simulation/ai-circles');
+    expect(anonymous.body).not.toHaveProperty('openschoolReturnUrl');
+  });
+
+  it.each([
+    '',
+    'not a url',
+    'javascript:alert(1)',
+    'ftp://127.0.0.1/simulation/ai-circles',
+    'http://user:pass@127.0.0.1:5199/simulation/ai-circles',
+    'http://127.0.0.1:5199/simulation/ai-circles?circle=pine',
+    'http://127.0.0.1:5199/simulation/ai-circles#x',
+  ])('publishes nothing for %p', async (value) => {
+    mockGetAppConfig.mockResolvedValue(baseAppConfig);
+    process.env.OPENSCHOOL_RETURN_URL = value;
+
+    const response = await request(createApp(mockUser)).get('/api/config');
+
+    expect(response.body).not.toHaveProperty('openschoolReturnUrl');
+  });
+});

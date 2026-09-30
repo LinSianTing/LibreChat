@@ -11,6 +11,7 @@ import {
   readString,
   useErrorEndpoint,
 } from './parts';
+import { OpenSchoolReturnLink, useOpenSchoolReturnUrl } from './openschoolReturn';
 import { codeWorkspaceErrorKeys } from '~/utils/errors';
 import { useLocalize } from '~/hooks';
 
@@ -26,6 +27,9 @@ export default function ModelError({ json, message }: ErrorRendererProps) {
   const info = readString(json, 'info');
   /** `info` is an endpoint id on these payloads; the conversation's own provider is the fallback. */
   const provider = info != null ? getProviderName(info) : conversationProvider;
+  const detail = readString(json, 'message');
+  /** OpenSchool fork: hooks run before the early returns below. */
+  const returnUrl = useOpenSchoolReturnUrl(detail);
 
   if (errorKey === ErrorTypes.MISSING_MODEL) {
     return provider != null
@@ -69,8 +73,9 @@ export default function ModelError({ json, message }: ErrorRendererProps) {
   return (
     <ErrorWithDetail
       headline={headline}
-      detail={readString(json, 'message')}
+      detail={detail}
       label={localize('com_error_details_provider')}
+      action={returnUrl != null ? <OpenSchoolReturnLink href={returnUrl} /> : undefined}
     />
   );
 }

@@ -8,6 +8,7 @@ import {
   readString,
   useErrorEndpoint,
 } from './parts';
+import { OpenSchoolReturnLink, useOpenSchoolReturnUrl } from './openschoolReturn';
 import { extractJson } from '~/utils/json';
 import { useLocalize } from '~/hooks';
 
@@ -121,12 +122,14 @@ export function UnclassifiedError({ json, text, message }: UnclassifiedErrorProp
       ? localize('com_error_provider_failed', { 0: provider })
       : localize('com_error_upstream_model');
   const headline = prose == null && json != null ? localize('com_error_unknown') : providerHeadline;
+  const returnUrl = useOpenSchoolReturnUrl(prose);
 
   return (
     <ErrorWithDetail
       headline={headline}
       detail={prose}
       label={localize('com_error_details_provider')}
+      action={returnUrl != null ? <OpenSchoolReturnLink href={returnUrl} /> : undefined}
     />
   );
 }
