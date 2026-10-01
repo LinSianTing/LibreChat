@@ -11,14 +11,26 @@ export default function OpenSchoolHandoff({
   if (handoff.phase === 'idle') {
     return null;
   }
-  const key = `com_openschool_handoff_${handoff.phase}` as Parameters<typeof localize>[0];
+  const phaseKeys = {
+    loading: 'com_openschool_handoff_loading',
+    confirm: 'com_openschool_handoff_confirm',
+    ready: 'com_openschool_handoff_ready',
+    success: 'com_openschool_handoff_success',
+    expired: 'com_openschool_handoff_expired',
+    invalid: 'com_openschool_handoff_invalid',
+    disabled: 'com_openschool_handoff_disabled',
+    forbidden: 'com_openschool_handoff_forbidden',
+    unavailable: 'com_openschool_handoff_unavailable',
+    model: 'com_openschool_handoff_model',
+    login: 'com_openschool_handoff_login',
+  } as const;
   return (
     <div
       role="status"
       aria-live="polite"
       className="mb-2 rounded-lg border border-border-medium p-3 text-sm text-text-primary"
     >
-      <p>{localize(key)}</p>
+      <p>{localize(phaseKeys[handoff.phase])}</p>
       {handoff.phase === 'confirm' && (
         <div className="mt-2 flex flex-wrap gap-2">
           <Button type="button" onClick={handoff.confirm}>

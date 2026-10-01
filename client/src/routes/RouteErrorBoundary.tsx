@@ -1,5 +1,6 @@
 import { Button } from '@librechat/client';
 import { useRouteError } from 'react-router-dom';
+import OpenSchoolReturnHome from '~/openschool/OpenSchoolReturnHome';
 import { useLocalize } from '~/hooks';
 import logger from '~/utils/logger';
 
@@ -210,6 +211,7 @@ export default function RouteErrorBoundary() {
             <li>{localize('com_ui_contact_admin_if_issue_persists')}</li>
           </ul>
           <div className="mt-4 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
+            <OpenSchoolReturnHome />
             <Button
               variant="submit"
               onClick={() => window.location.reload()}

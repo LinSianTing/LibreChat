@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button } from '@librechat/client';
 import { useSearchParams } from 'react-router-dom';
+import OpenSchoolReturnHome from '~/openschool/OpenSchoolReturnHome';
 import { useLocalize } from '~/hooks';
 
 export default function OAuthError() {
@@ -67,6 +68,9 @@ export default function OAuthError() {
         >
           {localize('com_ui_close_window')}
         </Button>
+        <div className="mt-4">
+          <OpenSchoolReturnHome />
+        </div>
       </div>
     </div>
   );

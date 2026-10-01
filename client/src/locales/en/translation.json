@@ -3064,5 +3064,6 @@
   "com_insights_sparkline_accessibility": "{{label}} over time",
   "com_nav_mobile_drawer_strip": "Show chat beside the sidebar on mobile",
   "com_nav_mobile_drawer_strip_info": "The sidebar stops short of the edge so a strip of the conversation stays visible. Tapping it closes the sidebar.",
-  "com_openschool_return_to_circle": "Back to Open School circles"
+  "com_openschool_return_to_circle": "Back to Open School circles",
+  "com_openschool_return_home": "Return to OpenSchool"
 }

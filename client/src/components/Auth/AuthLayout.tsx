@@ -1,5 +1,6 @@
 import { ThemeSelector } from '@librechat/client';
 import { TStartupConfig } from 'librechat-data-provider';
+import OpenSchoolReturnHome from '~/openschool/OpenSchoolReturnHome';
 import { ErrorMessage } from '~/components/Auth/ErrorMessage';
 import { TranslationKeys, useLocalize } from '~/hooks';
 import SocialLoginRender from './SocialLoginRender';
@@ -91,6 +92,11 @@ function AuthLayout({
             (pathname.includes('login') || pathname.includes('register')) && (
               <SocialLoginRender startupConfig={startupConfig} />
             )}
+          {(pathname.includes('login') || hasStartupConfigError || error != null) && (
+            <div className="mt-6 flex justify-center">
+              <OpenSchoolReturnHome />
+            </div>
+          )}
         </div>
       </main>
       <Footer startupConfig={startupConfig} />
