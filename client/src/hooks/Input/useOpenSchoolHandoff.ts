@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { useGetModelsQuery } from 'librechat-data-provider/react-query';
 import { apiBaseUrl, Constants, EModelEndpoint } from 'librechat-data-provider';
+import type { HandoffDraft } from './openschoolHandoff';
+import { captureHandoff, clearHandoff, handoffUserId, HANDOFF_MODEL } from './openschoolHandoff';
 import { useGetEndpointsQuery, useGetStartupConfig } from '~/data-provider';
 import { useChatContext, useChatFormContext } from '~/Providers';
 import { useAuthContext } from '~/hooks/AuthContext';
-import { captureHandoff, clearHandoff, handoffUserId, HANDOFF_MODEL } from './openschoolHandoff';
-import type { HandoffDraft } from './openschoolHandoff';
 
 type Phase =
   | 'idle'
@@ -179,17 +179,13 @@ export default function useOpenSchoolHandoff({
         if (status !== '401') {
           clearHandoff();
         }
-        setPhase(
-          status === '401'
-            ? 'login'
-            : status === '403'
-              ? 'forbidden'
-              : status === '400'
-                ? 'invalid'
-                : status === '404'
-                  ? 'expired'
-                  : 'unavailable',
-        );
+        const statusPhases: Record<string, Phase> = {
+          '401': 'login',
+          '403': 'forbidden',
+          '400': 'invalid',
+          '404': 'expired',
+        };
+        setPhase(statusPhases[status] ?? 'unavailable');
       });
     // StrictMode reattaches to the same promise; it never issues a second consume.
     return () => {

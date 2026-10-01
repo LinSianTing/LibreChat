@@ -1,8 +1,8 @@
 import React from 'react';
 import { Button } from '@librechat/client';
 import { useSearchParams } from 'react-router-dom';
-import { useLocalize } from '~/hooks';
 import OpenSchoolReturnHome from '~/openschool/OpenSchoolReturnHome';
+import { useLocalize } from '~/hooks';
 
 export default function OAuthError() {
   const localize = useLocalize();

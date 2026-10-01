@@ -1,11 +1,11 @@
-import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import AuthLayout from '~/components/Auth/AuthLayout';
-import OAuthError from '~/components/OAuth/OAuthError';
+import { render, screen } from '@testing-library/react';
+import traditionalChinese from '~/locales/zh-Hant/translation.json';
 import RouteErrorBoundary from '~/routes/RouteErrorBoundary';
 import OpenSchoolReturnHome from '../OpenSchoolReturnHome';
+import OAuthError from '~/components/OAuth/OAuthError';
+import AuthLayout from '~/components/Auth/AuthLayout';
 import english from '~/locales/en/translation.json';
-import traditionalChinese from '~/locales/zh-Hant/translation.json';
 
 jest.mock('~/hooks', () => ({
   useLocalize: () => (key: string) => key,
@@ -28,8 +28,12 @@ const expectFixedExit = () => {
   expect(link).not.toHaveAttribute('onclick');
 };
 
+const loginContent = 'Login content';
+const errorContent = 'Error content';
+
 describe('Fixed OpenSchool return exit', () => {
   it('works without startup config and ignores redirect query input', () => {
+    expect.assertions(3);
     render(
       <MemoryRouter
         initialEntries={['/login?redirect_to=https://evil.example&returnUrl=javascript:alert(1)']}
@@ -52,7 +56,7 @@ describe('Fixed OpenSchool return exit', () => {
           pathname="/login"
           error={null}
         >
-          <p>Login content</p>
+          <p>{loginContent}</p>
         </AuthLayout>,
       );
       expectFixedExit();
@@ -61,6 +65,7 @@ describe('Fixed OpenSchool return exit', () => {
   );
 
   it('is visible on an auth layout error outside login', () => {
+    expect.assertions(3);
     render(
       <AuthLayout
         header="Error"
@@ -70,7 +75,7 @@ describe('Fixed OpenSchool return exit', () => {
         pathname="/reset-password"
         error="com_auth_error_invalid_reset_token"
       >
-        <p>Error content</p>
+        <p>{errorContent}</p>
       </AuthLayout>,
     );
     expectFixedExit();

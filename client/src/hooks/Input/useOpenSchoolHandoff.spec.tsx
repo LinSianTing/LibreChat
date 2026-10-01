@@ -1,7 +1,6 @@
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { renderHook, act, waitFor } from '@testing-library/react';
-import useOpenSchoolHandoff from './useOpenSchoolHandoff';
 import {
   HANDOFF_KEY,
   HANDOFF_TTL,
@@ -9,6 +8,7 @@ import {
   readHandoff,
   handoffUserId,
 } from './openschoolHandoff';
+import useOpenSchoolHandoff from './useOpenSchoolHandoff';
 
 jest.mock('librechat-data-provider', () => ({
   apiBaseUrl: () => '',
