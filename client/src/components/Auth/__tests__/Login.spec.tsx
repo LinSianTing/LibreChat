@@ -129,6 +129,10 @@ jest.mock('react-router-dom', () => ({
 
 test('renders login form', () => {
   const { getByLabelText, getByRole } = setup();
+  expect(getByRole('link', { name: 'Return to OpenSchool' })).toHaveAttribute(
+    'href',
+    'https://openschool.langracetech.com',
+  );
   expect(getByLabelText(/email/i)).toBeInTheDocument();
   expect(getByLabelText(/password/i)).toBeInTheDocument();
   expect(getByTestId(document.body, 'login-button')).toBeInTheDocument();
