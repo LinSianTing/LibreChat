@@ -2,7 +2,13 @@ import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import useOpenSchoolHandoff from './useOpenSchoolHandoff';
-import { HANDOFF_KEY, HANDOFF_TTL, captureHandoff, readHandoff } from './openschoolHandoff';
+import {
+  HANDOFF_KEY,
+  HANDOFF_TTL,
+  captureHandoff,
+  readHandoff,
+  handoffUserId,
+} from './openschoolHandoff';
 
 jest.mock('librechat-data-provider', () => ({
   apiBaseUrl: () => '',
@@ -23,8 +29,28 @@ jest.mock('~/Providers', () => ({
 }));
 
 const id = 'a'.repeat(64);
+const ownerId = '507f1f77bcf86cd799439011';
+const otherId = '507f1f77bcf86cd799439012';
+const invalidUsers = [
+  null,
+  {},
+  { email: 'same@example.test', googleId: 'same-subject' },
+  { id: '' },
+  { _id: ' ' },
+  { id: ownerId, _id: '' },
+  { id: '', _id: ownerId },
+  { id: ownerId, _id: null },
+  { id: undefined, _id: ownerId },
+  { id: ownerId, _id: otherId },
+  { id: 42, _id: ownerId },
+  { _id: { $oid: ownerId } },
+];
 const link = `/c/new?endpoint=OpenSchool&model=personal&os_handoff=${id}&prompt=unsafe&q=unsafe&submit=true&autosubmit=true`;
-let mockAuth = { user: { id: 'owner' }, token: 'jwt', isAuthenticated: true };
+let mockAuth: {
+  user: Record<string, unknown> | null;
+  token: string;
+  isAuthenticated: boolean;
+} = { user: { id: 'owner' }, token: 'jwt', isAuthenticated: true };
 let mockConfig = { openschoolPromptHandoffEnabled: true };
 let mockEndpoints: Record<string, object> | undefined = { OpenSchool: {} };
 let mockModels = { OpenSchool: ['personal', 'circle-adult'] };
@@ -224,6 +250,116 @@ test('account change during fetch never exposes the old account draft', async ()
   expect(hook.result.current.phase).toBe('forbidden');
   expect(mockMethods.setValue).not.toHaveBeenCalled();
 });
+test('refresh _id-only to GET id+_id during HTTP 200 preserves the same account', async () => {
+  const owner = '507f1f77bcf86cd799439011';
+  mockAuth.user = { _id: owner };
+  const ok = response();
+  let resolve!: (value: ReturnType<typeof response>) => void;
+  mockFetch.mockReturnValue(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  const hook = mount(link, true);
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+  mockAuth.user = { _id: owner, id: owner };
+  hook.rerender();
+  await act(async () => resolve(ok));
+  expect(ok.status).toBe(200);
+  expect(hook.result.current.phase).not.toBe('forbidden');
+  await modelReady(hook);
+  expect(mockText).toBe('private user draft');
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+  expect(mockMethods.setValue).toHaveBeenCalledTimes(1);
+});
+test('refresh _id-only to GET id+_id after prefill keeps the same account draft', async () => {
+  const owner = '507f1f77bcf86cd799439011';
+  mockAuth.user = { _id: owner };
+  const hook = mount();
+  await modelReady(hook);
+  mockAuth.user = { _id: owner, id: owner };
+  hook.rerender();
+  expect(hook.result.current.phase).toBe('success');
+  expect(mockText).toBe('private user draft');
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+  expect(mockMethods.setValue).toHaveBeenCalledTimes(1);
+});
+test.each([{ id: ownerId }, { _id: ownerId }, { id: ownerId, _id: ownerId }])(
+  'canonical identity accepts each valid server shape: %j',
+  (user) => {
+    expect(handoffUserId(user)).toBe(ownerId);
+  },
+);
+test.each(invalidUsers)('invalid or missing identity never consumes: %j', async (user) => {
+  expect(handoffUserId(user)).toBeUndefined();
+  mockAuth.user = user;
+  const hook = mount();
+  await waitFor(() => expect(hook.result.current.phase).toBe('forbidden'));
+  expect(mockFetch).not.toHaveBeenCalled();
+  expect(mockMethods.setValue).not.toHaveBeenCalled();
+  expect(sessionStorage.getItem(HANDOFF_KEY)).toBeNull();
+});
+test.each(invalidUsers)(
+  'identity loss/conflict during HTTP 200 discards the response: %j',
+  async (user) => {
+    mockAuth.user = { _id: ownerId };
+    let resolve!: (value: ReturnType<typeof response>) => void;
+    mockFetch.mockReturnValue(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    const hook = mount();
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+    mockAuth.user = user;
+    hook.rerender();
+    await act(async () => resolve(response()));
+    expect(hook.result.current.phase).toBe('forbidden');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockMethods.setValue).not.toHaveBeenCalled();
+    expect(mockNewConversation).not.toHaveBeenCalled();
+  },
+);
+test('equivalent id-only to _id-only shape during model setup preserves the owner', async () => {
+  mockAuth.user = { id: ownerId };
+  const hook = mount();
+  await waitFor(() => expect(mockNewConversation).toHaveBeenCalledTimes(1));
+  mockAuth.user = { _id: ownerId };
+  hook.rerender();
+  await modelReady(hook);
+  expect(mockText).toBe('private user draft');
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+});
+test('real _id account switch during model readiness never prefills the new account', async () => {
+  mockAuth.user = { _id: ownerId };
+  const hook = mount();
+  await waitFor(() => expect(mockNewConversation).toHaveBeenCalledTimes(1));
+  mockAuth.user = { _id: otherId };
+  mockConversation = {
+    conversationId: 'new',
+    endpoint: 'OpenSchool',
+    model: 'personal',
+    endpointType: 'custom',
+  };
+  hook.rerender();
+  expect(hook.result.current.phase).toBe('forbidden');
+  expect(mockMethods.setValue).not.toHaveBeenCalled();
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+});
+test.each([null, {}, { _id: otherId }, { id: ownerId, _id: otherId }])(
+  'identity loss, real switch or conflicting aliases after prefill clears the draft: %j',
+  async (user) => {
+    mockAuth.user = { _id: ownerId };
+    const hook = mount();
+    await modelReady(hook);
+    mockAuth.user = user;
+    hook.rerender();
+    expect(hook.result.current.phase).toBe('forbidden');
+    expect(mockText).toBe('');
+    expect(mockMethods.setValue).toHaveBeenLastCalledWith('text', '', { shouldDirty: false });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  },
+);
 test('malformed link never consumes or uses prompt', () => {
   const hook = mount(
     '/c/new?endpoint=OpenSchool&model=personal&os_handoff=bad&prompt=unsafe&submit=true',

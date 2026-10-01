@@ -5,7 +5,7 @@ import { apiBaseUrl, Constants, EModelEndpoint } from 'librechat-data-provider';
 import { useGetEndpointsQuery, useGetStartupConfig } from '~/data-provider';
 import { useChatContext, useChatFormContext } from '~/Providers';
 import { useAuthContext } from '~/hooks/AuthContext';
-import { captureHandoff, clearHandoff, HANDOFF_MODEL } from './openschoolHandoff';
+import { captureHandoff, clearHandoff, handoffUserId, HANDOFF_MODEL } from './openschoolHandoff';
 import type { HandoffDraft } from './openschoolHandoff';
 
 type Phase =
@@ -32,6 +32,7 @@ export default function useOpenSchoolHandoff({
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const { user, token, isAuthenticated } = useAuthContext();
+  const userId = handoffUserId(user);
   const { data: config } = useGetStartupConfig();
   const { data: endpoints } = useGetEndpointsQuery();
   const { data: models } = useGetModelsQuery();
@@ -47,8 +48,8 @@ export default function useOpenSchoolHandoff({
   const switched = useRef(false);
   const finished = useRef(false);
   const jobOwner = useRef<string>();
-  const currentUser = useRef(user?.id);
-  currentUser.current = user?.id;
+  const currentUser = useRef(userId);
+  currentUser.current = userId;
   const expectedModel = useRef(params.get('model'));
   const typedText = useRef<string | null>(null);
 
@@ -72,7 +73,7 @@ export default function useOpenSchoolHandoff({
       return;
     }
     const pending = capture.pending;
-    if (job.current && jobOwner.current !== user?.id) {
+    if (job.current && jobOwner.current !== userId) {
       if (phase === 'success') {
         methods.setValue('text', '', { shouldDirty: false });
       }
@@ -83,6 +84,13 @@ export default function useOpenSchoolHandoff({
       return;
     }
     if (!pending || finished.current || !isAuthenticated || !token || !config) {
+      return;
+    }
+    if (userId === undefined) {
+      finished.current = true;
+      clearHandoff();
+      removeUrl();
+      setPhase('forbidden');
       return;
     }
     if (location.pathname !== '/c/new') {
@@ -113,7 +121,7 @@ export default function useOpenSchoolHandoff({
       removeUrl();
       return;
     }
-    const owner = user?.id;
+    const owner = userId;
     if (!job.current) {
       jobOwner.current = owner;
       job.current = (async () => {
@@ -193,7 +201,7 @@ export default function useOpenSchoolHandoff({
     capture,
     isAuthenticated,
     token,
-    user?.id,
+    userId,
     config,
     endpoints,
     models,
@@ -235,6 +243,9 @@ export default function useOpenSchoolHandoff({
 
   useEffect(() => {
     if (phase !== 'ready' || !draft || !textAreaRef.current) {
+      return;
+    }
+    if (userId === undefined || jobOwner.current !== userId) {
       return;
     }
     if (location.pathname !== '/c/new') {
@@ -288,7 +299,16 @@ export default function useOpenSchoolHandoff({
     textAreaRef.current.focus();
     setDraft(null);
     setPhase('success');
-  }, [phase, draft, conversation, methods, newConversation, textAreaRef, location.pathname]);
+  }, [
+    phase,
+    draft,
+    conversation,
+    methods,
+    newConversation,
+    textAreaRef,
+    location.pathname,
+    userId,
+  ]);
 
   useEffect(() => {
     if (phase !== 'ready') {

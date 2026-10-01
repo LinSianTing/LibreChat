@@ -6,6 +6,30 @@ export type PendingHandoff = { id: string; expiresAt: number };
 export type HandoffDraft = { prompt: string; model: string; expiresAtUtc: string };
 export type HandoffCapture = { pending?: PendingHandoff; error?: 'expired' | 'invalid' };
 
+/** Refresh may omit id; GET user adds it. Every supplied ID must agree exactly. */
+export function handoffUserId(user: unknown): string | undefined {
+  if (user == null || typeof user !== 'object' || Array.isArray(user)) {
+    return undefined;
+  }
+  let owner: string | undefined;
+  for (const key of ['id', '_id']) {
+    if (!Object.hasOwn(user, key)) {
+      continue;
+    }
+    const value = (user as Record<string, unknown>)[key];
+    if (
+      typeof value !== 'string' ||
+      !value ||
+      value.trim() !== value ||
+      (owner !== undefined && owner !== value)
+    ) {
+      return undefined;
+    }
+    owner = value;
+  }
+  return owner;
+}
+
 export function clearHandoff(): void {
   try {
     sessionStorage.removeItem(HANDOFF_KEY);
