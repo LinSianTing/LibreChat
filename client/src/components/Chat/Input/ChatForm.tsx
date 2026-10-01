@@ -37,6 +37,7 @@ import {
   PendingToolApprovalButton,
   PendingToolApprovalPanel,
 } from '~/components/Chat/approval/Review';
+import useOpenSchoolHandoff from '~/hooks/Input/useOpenSchoolHandoff';
 import PendingManualSkillsChips from './PendingManualSkillsChips';
 import usePastedTextEdit from '~/hooks/Files/usePastedTextEdit';
 import useAskAnswerMode from '~/hooks/Input/useAskAnswerMode';
@@ -51,6 +52,7 @@ import PendingSteerChips from './PendingSteerChips';
 import PendingQuoteChips from './PendingQuoteChips';
 import AttachFileChat from './Files/AttachFileChat';
 import CodeWorkspaceMenu from './CodeWorkspaceMenu';
+import OpenSchoolHandoff from './OpenSchoolHandoff';
 import useSteering from '~/hooks/Chat/useSteering';
 import CodeApprovalMenu from './CodeApprovalMenu';
 import FileFormChat from './Files/FileFormChat';
@@ -70,8 +72,6 @@ import EditBadges from './EditBadges';
 import BadgeRow from './BadgeRow';
 import Mention from './Mention';
 import store from '~/store';
-import useOpenSchoolHandoff from '~/hooks/Input/useOpenSchoolHandoff';
-import OpenSchoolHandoff from './OpenSchoolHandoff';
 
 export function toRestoredComposerFile(
   file: NonNullable<TMessage['files']>[number],
@@ -656,8 +656,10 @@ const ChatForm = memo(function ChatForm({
         bottomClearance,
       )}
     >
-      <div className="relative flex h-full min-w-0 flex-1 items-stretch md:flex-col">
-        {index === 0 && <OpenSchoolHandoff handoff={handoff} />}
+      <div className="relative flex h-full min-w-0 flex-1 flex-col items-stretch">
+        {index === 0 && (handoff.phase !== 'success' || conversationId === Constants.NEW_CONVO) && (
+          <OpenSchoolHandoff handoff={handoff} onDismiss={() => textAreaRef.current?.focus()} />
+        )}
         {/* Primary composer owns the selection popup so split-view doesn't double it. */}
         {index === 0 && quotesEnabled && <QuoteButton conversationId={conversationId} />}
         {/* `relative` anchors the in-flight steer overlay, which floats above
