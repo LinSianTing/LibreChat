@@ -179,13 +179,13 @@ export default function useOpenSchoolHandoff({
         if (status !== '401') {
           clearHandoff();
         }
-        const statusPhases: Record<string, Phase> = {
-          '401': 'login',
-          '403': 'forbidden',
-          '400': 'invalid',
-          '404': 'expired',
-        };
-        setPhase(statusPhases[status] ?? 'unavailable');
+        const statusPhases = new Map<string, Phase>([
+          ['401', 'login'],
+          ['403', 'forbidden'],
+          ['400', 'invalid'],
+          ['404', 'expired'],
+        ]);
+        setPhase(statusPhases.get(status) ?? 'unavailable');
       });
     // StrictMode reattaches to the same promise; it never issues a second consume.
     return () => {

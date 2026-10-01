@@ -235,6 +235,19 @@ test.each([400, 403, 404, 503, 401])(
     expect(sessionStorage.getItem(HANDOFF_KEY) != null).toBe(status === 401);
   },
 );
+test.each(['constructor', 'toString', '__proto__', 'network failure'])(
+  'unknown error %s stays unavailable without exposing or retrying the draft',
+  async (message) => {
+    mockFetch.mockRejectedValue(new Error(message));
+    const hook = mount();
+    await waitFor(() => expect(hook.result.current.phase).toBe('unavailable'));
+    expect(mockMethods.setValue).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(HANDOFF_KEY)).toBeNull();
+    hook.rerender();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  },
+);
+
 test('account change during fetch never exposes the old account draft', async () => {
   let resolve!: (value: ReturnType<typeof response>) => void;
   mockFetch.mockReturnValue(
