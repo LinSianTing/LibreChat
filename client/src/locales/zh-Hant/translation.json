@@ -4,7 +4,7 @@
   "com_openschool_handoff_confirm": "輸入框已有文字。要將私密提示稿附加在後面，或保留原文字並放棄帶入的提示稿？內容不會自動送出。",
   "com_openschool_handoff_append": "將提示稿附加到原文字",
   "com_openschool_handoff_cancel": "保留原文字",
-  "com_openschool_handoff_success": "提示稿已帶入。請檢查、編輯，再自行按送出。這份私密草稿不會儲存在本機。",
+  "com_openschool_handoff_success": "提示稿已帶入，尚未送出。請檢查後再送出。",
   "com_openschool_handoff_expired": "提示稿已逾期或已使用。請返回開放學校重新產生交接連結。",
   "com_openschool_handoff_invalid": "交接連結無效。請返回開放學校重新產生交接連結。",
   "com_openschool_handoff_disabled": "此 Chat 尚未啟用私密提示稿帶入。請返回開放學校。",

@@ -4,7 +4,7 @@
   "com_openschool_handoff_confirm": "You already have text. Append the private draft to it, or keep your text and discard the incoming draft? Nothing will be sent automatically.",
   "com_openschool_handoff_append": "Append draft to my text",
   "com_openschool_handoff_cancel": "Keep my text",
-  "com_openschool_handoff_success": "Draft added. Review and edit it, then press Send when ready. This private draft is not saved locally.",
+  "com_openschool_handoff_success": "Draft added, not sent. Review it before sending.",
   "com_openschool_handoff_expired": "This draft has expired or was already used. Return to OpenSchool and generate a new handoff.",
   "com_openschool_handoff_invalid": "This handoff link is invalid. Return to OpenSchool and generate a new handoff.",
   "com_openschool_handoff_disabled": "Private draft handoff is not enabled on this Chat. Return to OpenSchool.",
