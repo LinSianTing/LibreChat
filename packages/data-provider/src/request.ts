@@ -3,6 +3,7 @@ import axios from 'axios';
 import type { AxiosRequestConfig, AxiosResponse } from 'axios';
 import type * as t from './types';
 import { setTokenHeader } from './headers-helpers';
+import { getPendingLogoutToken } from './logout';
 import * as endpoints from './api-endpoints';
 
 async function _get<T>(url: string, options?: AxiosRequestConfig): Promise<T> {
@@ -182,6 +183,9 @@ const clearAuthRedirectStartedAt = () => {
 };
 
 const isAuthRedirectInProgress = () => {
+  if (getPendingLogoutToken()) {
+    return true;
+  }
   const startedAt = getAuthRedirectStartedAt();
   return (
     Number.isFinite(startedAt) && startedAt > 0 && Date.now() - startedAt < AUTH_REDIRECT_DEDUPE_MS
@@ -204,6 +208,9 @@ const isAuthRecoveryEndpoint = (url?: string) =>
   url?.includes('/api/auth/refresh') === true;
 
 const startAuthRecovery = (retryRefresh?: boolean) => {
+  if (getPendingLogoutToken()) {
+    return Promise.resolve(null);
+  }
   const state = getAuthRecoveryState();
   if (state.refreshPromise) {
     return state.refreshPromise;
@@ -212,6 +219,9 @@ const startAuthRecovery = (retryRefresh?: boolean) => {
   dispatchAuthRecoveryEvent('started');
   state.refreshPromise = refreshToken(retryRefresh)
     .then((response) => {
+      if (getPendingLogoutToken()) {
+        return null;
+      }
       const token = response?.token ?? '';
       if (!token) {
         return null;
@@ -285,6 +295,9 @@ const shouldRefreshBeforeRequest = (url?: string) => {
 };
 
 const refreshBeforeRequest = async (url?: string) => {
+  if (getPendingLogoutToken()) {
+    return null;
+  }
   const state = getAuthRecoveryState();
   if (state.refreshPromise && !isAuthRecoveryEndpoint(url)) {
     return state.refreshPromise.catch(() => null);

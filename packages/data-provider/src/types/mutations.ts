@@ -503,6 +503,7 @@ export type BranchMessageOptions = MutationOptions<
 
 export type TLogoutResponse = {
   message: string;
+  code?: string;
   redirect?: string;
 };
 

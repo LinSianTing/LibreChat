@@ -11,6 +11,7 @@ import type { TFileConfig } from './file-config';
 import type * as tl from './types/tools';
 import type * as t from './types';
 import * as permissions from './accessPermissions';
+import { getPendingLogoutToken } from './logout';
 import * as endpoints from './api-endpoints';
 import { uploadEventStream } from './upload';
 import * as mcp from './types/mcpServers';
@@ -300,7 +301,19 @@ export const login = (payload: t.TLoginUser): Promise<t.TLoginResponse> => {
   return request.post(endpoints.login(), payload);
 };
 
-export const logout = (): Promise<m.TLogoutResponse> => {
+export const logout = async (): Promise<m.TLogoutResponse> => {
+  const pendingToken = getPendingLogoutToken();
+  if (pendingToken) {
+    const response = await fetch(endpoints.logout(), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { Authorization: `Bearer ${pendingToken}` },
+    });
+    if (!response.ok) {
+      throw new Error('Central logout is incomplete');
+    }
+    return response.json();
+  }
   return request.post(endpoints.logout());
 };
 

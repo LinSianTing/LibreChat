@@ -1,6 +1,7 @@
 const cookies = require('cookie');
 const jwt = require('jsonwebtoken');
 const crypto = require('node:crypto');
+const centralSSO = require('~/server/services/LocalCentralSSO');
 const { logger, runAsSystem, tenantStorage } = require('@librechat/data-schemas');
 const {
   math,
@@ -341,6 +342,38 @@ const resetPasswordController = async (req, res) => {
 
 const refreshController = async (req, res) => {
   const parsedCookies = req.headers.cookie ? cookies.parse(req.headers.cookie) : {};
+  if (centralSSO.enabled()) {
+    try {
+      centralSSO.assertConfig();
+      const refreshToken = parsedCookies.refreshToken;
+      const payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET, {
+        algorithms: ['HS256'],
+      });
+      const session = await findSession(
+        { userId: payload.id, sessionId: payload.sessionId, refreshToken },
+        { lean: false },
+      );
+      if (
+        !session ||
+        !payload.id ||
+        !payload.sessionId ||
+        String(session._id) !== payload.sessionId ||
+        String(session.user) !== payload.id
+      ) {
+        return res.status(401).json({ message: 'Central session is not authorized' });
+      }
+      centralSSO.match(
+        centralSSO.binding(payload.centralSession),
+        centralSSO.binding(session.centralSession),
+      );
+      const token = await setAuthTokens(payload.id, res, session, req);
+      return res.status(200).send({ token, user: sanitizeUserForAuthResponse(req.user) });
+    } catch (error) {
+      return res
+        .status(error.status === 503 ? 503 : 401)
+        .json({ message: 'Central session is not authorized' });
+    }
+  }
   const token_provider = parsedCookies.token_provider;
 
   if (token_provider === 'openid' && isEnabled(process.env.OPENID_REUSE_TOKENS)) {

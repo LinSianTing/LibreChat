@@ -1,5 +1,6 @@
 const cookies = require('cookie');
 const passport = require('passport');
+const centralSSO = require('~/server/services/LocalCentralSSO');
 const { logger } = require('@librechat/data-schemas');
 const {
   isEnabled,
@@ -29,7 +30,7 @@ const getAuthStrategies = (req) => {
   const cookieHeader = req.headers.cookie;
   const parsedCookies = cookieHeader ? cookies.parse(cookieHeader) : {};
   const tokenProvider = parsedCookies.token_provider;
-  const openidReuseEnabled = isEnabled(process.env.OPENID_REUSE_TOKENS);
+  const openidReuseEnabled = !centralSSO.enabled() && isEnabled(process.env.OPENID_REUSE_TOKENS);
   const openidJwtAvailable = openidReuseEnabled && hasPassportStrategy('openidJwt');
   const openIdReuseUserId = getValidOpenIdReuseUserId(parsedCookies.openid_user_id);
   const useOpenIdJwt =

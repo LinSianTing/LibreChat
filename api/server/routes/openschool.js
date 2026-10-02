@@ -1,5 +1,7 @@
 const express = require('express');
 const { requireJwtAuth, requireSameOrigin } = require('~/server/middleware');
+const centralSSO = require('~/server/services/LocalCentralSSO');
+const { identityHeaders } = require('~/server/services/CentralGateway');
 
 const router = express.Router();
 const ID = /^[a-f0-9]{64}$/;
@@ -14,7 +16,19 @@ router.post('/handoff', requireJwtAuth, requireSameOrigin, async (req, res) => {
     return fail(404);
   }
   const subject = req.user?.googleId;
-  if (typeof subject !== 'string' || !/^[^\s\x00-\x1f\x7f]{1,256}$/.test(subject)) {
+  if (
+    !centralSSO.enabled() &&
+    // eslint-disable-next-line no-control-regex -- Identity headers must reject ASCII control bytes.
+    (typeof subject !== 'string' || !/^[^\s\x00-\x1f\x7f]{1,256}$/.test(subject))
+  ) {
+    return fail(403);
+  }
+  let identity;
+  try {
+    identity = centralSSO.enabled()
+      ? identityHeaders(req.user)
+      : { 'X-OpenSchool-Google-Sub': subject };
+  } catch {
     return fail(403);
   }
   // A JSON POST with the existing JWT and origin guard; never trust browser identity/config.
@@ -69,7 +83,7 @@ router.post('/handoff', requireJwtAuth, requireSameOrigin, async (req, res) => {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${key}`,
-        'X-OpenSchool-Google-Sub': subject,
+        ...identity,
         ...(process.env.DOMAIN_CLIENT?.startsWith('https://')
           ? { 'X-Forwarded-Proto': 'https' }
           : {}),

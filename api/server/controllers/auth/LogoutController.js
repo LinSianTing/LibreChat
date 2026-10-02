@@ -1,4 +1,7 @@
 const cookies = require('cookie');
+const jwt = require('jsonwebtoken');
+const centralSSO = require('~/server/services/LocalCentralSSO');
+const { deleteSession } = require('~/models');
 const { isEnabled, math, clearCloudFrontCookies } = require('@librechat/api');
 const { logger, DEFAULT_REFRESH_TOKEN_EXPIRY } = require('@librechat/data-schemas');
 const { logoutUser } = require('~/server/services/AuthService');
@@ -24,6 +27,19 @@ function parseMaxLogoutUrlLength(defaultValue = 2000) {
 }
 
 const logoutController = async (req, res) => {
+  if (centralSSO.enabled()) {
+    try {
+      return await centralSSO.logout(req, res, {
+        verifyToken: jwt.verify,
+        deleteSession,
+        clearCloudFrontCookies,
+      });
+    } catch (error) {
+      return res
+        .status(error.status === 401 ? 401 : 503)
+        .json({ message: 'Central logout could not complete' });
+    }
+  }
   const parsedCookies = req.headers.cookie ? cookies.parse(req.headers.cookie) : {};
   const isOpenIdUser = req.user?.openidId != null && req.user?.provider === 'openid';
 

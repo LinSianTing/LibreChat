@@ -1,4 +1,7 @@
 {
+  "com_auth_logout_other_browser": "原 Chat 工作階段已撤銷。目前瀏覽器是另一個工作階段，已保留不動；未執行 IdP 登出。",
+  "com_auth_central_expired_help": "工作階段到期或 OpenID 登入失敗？請先結束原 IdP 工作階段，再手動登入；不延長舊工作階段。",
+  "com_auth_central_recover": "結束原工作階段／重試登出",
   "com_openschool_handoff_loading": "正在取得私密提示稿…",
   "com_openschool_handoff_ready": "正在準備指定模型的新對話…",
   "com_openschool_handoff_confirm": "輸入框已有文字。要將私密提示稿附加在後面，或保留原文字並放棄帶入的提示稿？內容不會自動送出。",

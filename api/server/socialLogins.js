@@ -1,4 +1,5 @@
 const passport = require('passport');
+const centralSSO = require('~/server/services/LocalCentralSSO');
 const session = require('express-session');
 const { CacheKeys } = require('librechat-data-provider');
 const {
@@ -48,6 +49,14 @@ const getOpenIdSessionExpiry = () => {
  * @returns {Promise<void>}
  */
 async function configureOpenId(app, appConfig) {
+  if (
+    centralSSO.enabled() &&
+    (!isEnabled(process.env.USE_REDIS) || !process.env.REDIS_URI?.trim())
+  ) {
+    throw new Error(
+      'Central SSO requires a persistent Redis session store; memory fallback refused.',
+    );
+  }
   logger.info('Configuring OpenID Connect...');
   const sessionExpiry = getOpenIdSessionExpiry();
   const sessionOptions = {
@@ -58,6 +67,7 @@ async function configureOpenId(app, appConfig) {
     cookie: {
       maxAge: sessionExpiry,
       secure: shouldUseSecureCookie(),
+      ...(centralSSO.enabled() ? { httpOnly: true, sameSite: 'lax' } : {}),
     },
   };
   app.use(session(sessionOptions));
@@ -81,6 +91,10 @@ async function configureOpenId(app, appConfig) {
  * @param {AppConfig} [appConfig] - Base app config, read for the social login state lifetime.
  */
 const configureSocialLogins = async (app, appConfig) => {
+  if (centralSSO.enabled()) {
+    centralSSO.assertConfig();
+    return configureOpenId(app, appConfig);
+  }
   logger.info('Configuring social logins...');
   const stateOptions = {
     secret: process.env.JWT_SECRET,

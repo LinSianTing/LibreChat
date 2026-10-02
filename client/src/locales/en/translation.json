@@ -1,4 +1,10 @@
 {
+  "com_auth_logout_other_browser": "The original Chat session was revoked. This browser now has a different session, which was left unchanged. Identity-provider sign-out was not attempted.",
+  "com_auth_central_expired_help": "Session expired or OpenID sign-in failed? End the original identity-provider session, then sign in manually. The old session will not be extended.",
+  "com_auth_central_recover": "End original session / Retry sign-out",
+  "com_auth_logout_pending": "Signing out…",
+  "com_auth_logout_incomplete": "Sign-out is incomplete. Your central session has not been confirmed revoked. Retry to finish signing out.",
+  "com_auth_logout_retry": "Retry sign-out",
   "com_openschool_handoff_loading": "Retrieving your private draft…",
   "com_openschool_handoff_ready": "Preparing a new chat with the selected model…",
   "com_openschool_handoff_confirm": "You already have text. Append the private draft to it, or keep your text and discard the incoming draft? Nothing will be sent automatically.",

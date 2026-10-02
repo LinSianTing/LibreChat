@@ -1,6 +1,18 @@
 import type { Document, Types } from 'mongoose';
 
+export interface CentralSessionBinding {
+  reference: string;
+  issuer: string;
+  clientId: string;
+  subject: string;
+  sid: string;
+  memberId: string;
+  chatOwnerId: string;
+  expiresAtUtc: string;
+}
+
 export interface ISession extends Document {
+  centralSession?: CentralSessionBinding;
   refreshTokenHash: string;
   expiration: Date;
   user: Types.ObjectId;
@@ -8,6 +20,7 @@ export interface ISession extends Document {
 }
 
 export interface CreateSessionOptions {
+  centralSession?: CentralSessionBinding;
   expiration?: Date;
   /** Duration in milliseconds for session expiry. Default: 7 days */
   expiresIn?: number;

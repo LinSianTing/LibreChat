@@ -39,6 +39,8 @@ const ALLOWED_USER_FIELDS = [
   'provider',
   'role',
   'googleId',
+  'memberId',
+  'centralSessionReference',
   'facebookId',
   'openidId',
   'samlId',

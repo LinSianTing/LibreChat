@@ -1,4 +1,5 @@
 import { Constants, LocalStorageKeys } from 'librechat-data-provider';
+import { scopedDraftKey, unscopedDraftKey, centralDraftsWritable } from './centralDraftScope';
 import { isPasteSubmitted } from './files';
 
 export type PendingTextAttachmentDraft = {
@@ -264,7 +265,7 @@ export const applyPendingPastesToDraft = (
 
 const getLocalStorageItem = (key: string): string | null => {
   try {
-    return localStorage.getItem(key);
+    return centralDraftsWritable() ? localStorage.getItem(scopedDraftKey(key)) : null;
   } catch {
     // Privacy-blocked storage must not abort paste/upload recovery.
     return null;
@@ -273,7 +274,7 @@ const getLocalStorageItem = (key: string): string | null => {
 
 const setLocalStorageItem = (key: string, value: string): void => {
   try {
-    localStorage.setItem(key, value);
+    if (centralDraftsWritable()) localStorage.setItem(scopedDraftKey(key), value);
   } catch {
     // Quota or disabled storage must not abort paste/upload recovery.
   }
@@ -281,7 +282,7 @@ const setLocalStorageItem = (key: string, value: string): void => {
 
 const removeLocalStorageItem = (key: string): void => {
   try {
-    localStorage.removeItem(key);
+    if (centralDraftsWritable()) localStorage.removeItem(scopedDraftKey(key));
   } catch {
     // Ignore storage failures on cleanup.
   }
@@ -973,7 +974,8 @@ export const collectDraftedAttachmentIds = (excludeIds: string[] = []): Set<stri
   const excluded = new Set(excludeIds);
   try {
     for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
+      const storedKey = localStorage.key(i);
+      const key = storedKey == null ? undefined : unscopedDraftKey(storedKey);
       if (key == null || !key.startsWith(LocalStorageKeys.FILES_DRAFT)) {
         continue;
       }
@@ -1131,7 +1133,8 @@ export const migrateFilesDraft = (fromId: string, toId: string): string => {
 
   removeLocalStorageItem(key);
   try {
-    localStorage.setItem(`${LocalStorageKeys.FILES_DRAFT}${toId}`, record);
+    if (!centralDraftsWritable()) return fromId;
+    localStorage.setItem(scopedDraftKey(`${LocalStorageKeys.FILES_DRAFT}${toId}`), record);
     return toId;
   } catch {
     /** Storage cannot hold the record even with the source freed, so put it back rather than

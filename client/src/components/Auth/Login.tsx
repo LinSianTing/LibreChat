@@ -113,6 +113,14 @@ function Login() {
 
   return (
     <>
+      {startupConfig?.centralLogoutEnabled && (
+        <p className="my-4 text-center text-sm text-text-secondary">
+          {localize('com_auth_central_expired_help')}{' '}
+          <a className="underline" href="/api/auth/central-logout">
+            {localize('com_auth_central_recover')}
+          </a>
+        </p>
+      )}
       {error != null && <ErrorMessage>{localize(getLoginError(error))}</ErrorMessage>}
       {startupConfig?.emailLoginEnabled === true && (
         <LoginForm

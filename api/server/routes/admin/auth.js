@@ -48,6 +48,7 @@ const setBalanceConfig = createSetBalanceConfig({
 });
 
 const router = express.Router();
+router.use(require('~/server/services/LocalCentralSSO').guardRoutes('admin'));
 
 function getOptionalOpenIdConfig() {
   try {

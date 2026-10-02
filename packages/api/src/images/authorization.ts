@@ -62,6 +62,8 @@ type OpenIdCookieAuthResult =
   | { status: 'authenticated'; userId: string };
 
 export interface ImageAuthorizationDeps {
+  isCentralSSOEnabled?: () => boolean;
+  authenticateCentralSession?: (refreshToken: string) => Promise<string | null>;
   parseCookies: (cookieHeader: string) => Record<string, string | undefined>;
   isOpenIdReuseEnabled: () => boolean;
   getBasePath: () => string;
@@ -222,6 +224,17 @@ async function authenticateRequest(
   const refreshToken = parsed.refreshToken;
   if (!refreshToken) {
     return { status: 'missing' };
+  }
+
+  if (deps.isCentralSSOEnabled?.()) {
+    try {
+      const userId = await runAsSystem(async () =>
+        deps.authenticateCentralSession ? deps.authenticateCentralSession(refreshToken) : null,
+      );
+      return userId ? { status: 'authenticated', userId } : { status: 'invalid' };
+    } catch {
+      return { status: 'invalid' };
+    }
   }
 
   if (parsed.token_provider === 'openid' && deps.isOpenIdReuseEnabled()) {
@@ -425,7 +438,7 @@ export function createImageAuthorizationMiddleware(
   options: ImageAuthorizationOptions,
   deps: ImageAuthorizationDeps,
 ): RequestHandler {
-  if (!deps.getImageConfig && options.secureImageLinks === false) {
+  if (!deps.isCentralSSOEnabled?.() && !deps.getImageConfig && options.secureImageLinks === false) {
     return (_req: Request, _res: Response, next: NextFunction): void => next();
   }
 
@@ -435,6 +448,13 @@ export function createImageAuthorizationMiddleware(
     next: NextFunction,
   ): Promise<void> {
     try {
+      const centralAuth = deps.isCentralSSOEnabled?.()
+        ? await authenticateRequest(req, deps)
+        : undefined;
+      if (centralAuth && centralAuth.status !== 'authenticated') {
+        denyRequest(res, centralAuth);
+        return;
+      }
       const imagePath = parseImagePath(req.originalUrl, deps.getBasePath());
       if (!imagePath) {
         if (options.secureImageLinks === false) {
@@ -459,7 +479,9 @@ export function createImageAuthorizationMiddleware(
         return;
       }
 
-      const authPromise = authenticateRequest(req, deps);
+      const authPromise = centralAuth
+        ? Promise.resolve(centralAuth)
+        : authenticateRequest(req, deps);
       void authPromise.catch(() => undefined);
       const loadImageConfig = (): Promise<ResolvedImageConfig> =>
         resolveImageConfig(imagePath.ownerId, owner, options, deps);

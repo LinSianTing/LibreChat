@@ -31,6 +31,7 @@ const { resizeAvatar } = require('~/server/services/Files/images/avatar');
 const { findUser, createUser, updateUser, findRolesByNames } = require('~/models');
 const { getAppConfig } = require('~/server/services/Config');
 const getLogStores = require('~/cache/getLogStores');
+const centralSSO = require('~/server/services/LocalCentralSSO');
 
 /**
  * @typedef {import('openid-client').ClientMetadata} ClientMetadata
@@ -125,6 +126,12 @@ class CustomOpenIDStrategy extends OpenIDStrategy {
 
   authorizationRequestParams(req, options) {
     const params = super.authorizationRequestParams(req, options);
+    if (centralSSO.enabled()) {
+      centralSSO.assertConfig();
+      params.set('state', client.randomState());
+      params.set('nonce', client.randomNonce());
+      return params;
+    }
     if (options?.state && !params.has('state')) {
       params.set('state', options.state);
     }
@@ -844,6 +851,9 @@ async function processOpenIDAuth(tokenset, existingUsersOnly = false) {
 function createOpenIDCallback(existingUsersOnly) {
   return async (tokenset, done) => {
     try {
+      if (centralSSO.enabled()) {
+        return done(null, await centralSSO.registerVerified(tokenset, findUser, existingUsersOnly));
+      }
       const user = await processOpenIDAuth(tokenset, existingUsersOnly);
       done(null, user);
     } catch (err) {
@@ -901,7 +911,10 @@ const setupOpenIdAdmin = (openidConfig) => {
  */
 async function setupOpenId() {
   try {
-    const usePKCE = isEnabled(process.env.OPENID_USE_PKCE);
+    if (centralSSO.enabled()) {
+      centralSSO.assertConfig();
+    }
+    const usePKCE = centralSSO.enabled() || isEnabled(process.env.OPENID_USE_PKCE);
     const shouldGenerateNonce = isEnabled(process.env.OPENID_GENERATE_NONCE);
 
     /** @type {ClientMetadata} */
@@ -930,6 +943,11 @@ async function setupOpenId() {
       undefined,
       {
         [client.customFetch]: customFetch,
+        ...(centralSSO.enabled() &&
+        process.env.NODE_ENV === 'development' &&
+        process.env.OPENID_ISSUER === 'http://localhost:15480/realms/langrace-local'
+          ? { execute: [client.allowInsecureRequests] }
+          : {}),
       },
     );
 
@@ -943,7 +961,7 @@ async function setupOpenId() {
     const openidLogin = new CustomOpenIDStrategy(
       {
         config: openidConfig,
-        scope: process.env.OPENID_SCOPE,
+        scope: centralSSO.enabled() ? 'openid profile email' : process.env.OPENID_SCOPE,
         callbackURL: process.env.DOMAIN_SERVER + process.env.OPENID_CALLBACK_URL,
         clockTolerance: process.env.OPENID_CLOCK_TOLERANCE || 300,
         usePKCE,
@@ -951,7 +969,9 @@ async function setupOpenId() {
       createOpenIDCallback(),
     );
     passport.use('openid', openidLogin);
-    setupOpenIdAdmin(openidConfig);
+    if (!centralSSO.enabled()) {
+      setupOpenIdAdmin(openidConfig);
+    }
     return openidConfig;
   } catch (err) {
     logger.error('[openidStrategy]', err);

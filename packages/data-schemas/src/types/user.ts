@@ -25,6 +25,9 @@ export interface IUser extends Document {
   provider: string;
   role?: string;
   googleId?: string;
+  /** Request-only values attached after live central authorization; not persisted user fields. */
+  memberId?: string;
+  centralSessionReference?: string;
   facebookId?: string;
   openidId?: string;
   samlId?: string;

@@ -1,5 +1,6 @@
 const cookie = require('cookie');
 const jwt = require('jsonwebtoken');
+const centralSSO = require('~/server/services/LocalCentralSSO');
 const { isEnabled } = require('@librechat/api');
 const { logger, runAsSystem } = require('@librechat/data-schemas');
 const { SystemRoles } = require('librechat-data-provider');
@@ -46,6 +47,29 @@ const getOpenIdUserId = (parsed, req) => {
  * `canAccessSharedLink` decide (public access, 401, or 403).
  */
 const optionalShareFileAuth = async (req, res, next) => {
+  if (centralSSO.enabled()) {
+    if (req.user?.centralSession && req.authStrategy === 'jwt') {
+      return next();
+    }
+    if (req.headers.authorization) {
+      return res.status(401).json({ message: 'Central session is not authorized' });
+    }
+    try {
+      const token = cookie.parse(req.headers.cookie || '').refreshToken;
+      req.user = await runAsSystem(() =>
+        centralSSO.authenticateRefresh(token, {
+          verifyToken: jwt.verify,
+          findSession,
+          getUserById,
+        }),
+      );
+      return next();
+    } catch (error) {
+      return res
+        .status(error.status === 503 ? 503 : 401)
+        .json({ message: 'Central session is not authorized' });
+    }
+  }
   if (req.user) {
     return next();
   }

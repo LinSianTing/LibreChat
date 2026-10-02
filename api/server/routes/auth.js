@@ -1,4 +1,5 @@
 const express = require('express');
+const centralSSO = require('~/server/services/LocalCentralSSO');
 const { createSetBalanceConfig, forceRefreshCloudFrontAuthCookies } = require('@librechat/api');
 const {
   resetPasswordRequestController,
@@ -28,6 +29,28 @@ const setBalanceConfig = createSetBalanceConfig({
 });
 
 const router = express.Router();
+router.use(centralSSO.guardRoutes('auth'));
+router.get(
+  '/central-session-check',
+  require('~/server/services/CentralBrowserCheck')({
+    centralSSO,
+    verifyToken: require('jsonwebtoken').verify,
+    findSession: require('~/models').findSession,
+    getUserById: require('~/models').getUserById,
+  }),
+);
+const centralLogoutRecovery = centralSSO.logoutRecovery({
+  verifyToken: require('jsonwebtoken').verify,
+  deleteSession: require('~/models').deleteSession,
+});
+router.get('/central-logout', centralLogoutRecovery);
+router.get('/central-logout/callback', centralLogoutRecovery);
+router.post(
+  '/central-logout/continue',
+  middleware.requireSameOrigin,
+  express.urlencoded({ extended: false, limit: '1kb' }),
+  centralLogoutRecovery,
+);
 const getCloudFrontAuthCookieRefreshResult = (req, res) => {
   const warmedResult = req.cloudFrontAuthCookieRefreshResult;
   if (warmedResult && (warmedResult.attempted || !warmedResult.enabled)) {
@@ -39,7 +62,16 @@ const getCloudFrontAuthCookieRefreshResult = (req, res) => {
 
 const ldapAuth = !!process.env.LDAP_URL && !!process.env.LDAP_USER_SEARCH_BASE;
 //Local
-router.post('/logout', middleware.requireJwtAuth, logoutController);
+router.post(
+  '/logout',
+  (req, res, next) => {
+    if (centralSSO.enabled()) {
+      return middleware.requireSameOrigin(req, res, next);
+    }
+    return middleware.requireJwtAuth(req, res, next);
+  },
+  logoutController,
+);
 router.post(
   '/login',
   middleware.logHeaders,

@@ -1,4 +1,5 @@
 const { CacheKeys } = require('librechat-data-provider');
+const centralSSO = require('~/server/services/LocalCentralSSO');
 const { logger, DEFAULT_SESSION_EXPIRY } = require('@librechat/data-schemas');
 const {
   isEnabled,
@@ -35,6 +36,10 @@ function createOAuthHandler(redirectUri = domains.client) {
       await checkBan(req, res);
       if (req.banned) {
         return;
+      }
+      if (centralSSO.enabled()) {
+        await setAuthTokens(req.user._id, res, null, req);
+        return res.redirect(redirectUri);
       }
 
       /** Check if this is an admin panel redirect (cross-origin or same-origin subpath) */
@@ -98,6 +103,7 @@ function createOAuthHandler(redirectUri = domains.client) {
       }
       res.redirect(redirectUri);
     } catch (err) {
+      if (centralSSO.enabled()) return centralSSO.centralLoginFailure(req, res);
       logger.error('Error in setting authentication tokens:', err);
       next(err);
     }

@@ -2477,6 +2477,7 @@ export type TStartupConfig = {
   githubLoginEnabled: boolean;
   googleLoginEnabled: boolean;
   openidLoginEnabled: boolean;
+  centralLogoutEnabled?: boolean;
   appleLoginEnabled: boolean;
   samlLoginEnabled: boolean;
   openidLabel: string;

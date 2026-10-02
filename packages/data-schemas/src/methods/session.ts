@@ -73,6 +73,7 @@ export function createSessionMethods(mongoose: typeof import('mongoose')): {
       const Session = mongoose.models.Session;
       const currentSession = new Session({
         user: userId,
+        ...(options.centralSession ? { centralSession: options.centralSession } : {}),
         expiration: options.expiration || new Date(Date.now() + expiresIn),
       });
       const refreshToken = await generateRefreshToken(currentSession);
@@ -301,6 +302,7 @@ export function createSessionMethods(mongoose: typeof import('mongoose')): {
         payload: {
           id: session.user,
           sessionId: session._id,
+          ...(session.centralSession ? { centralSession: session.centralSession } : {}),
         },
         secret: process.env.JWT_REFRESH_SECRET!,
         expirationTime: Math.floor((expiresIn - Date.now()) / 1000),

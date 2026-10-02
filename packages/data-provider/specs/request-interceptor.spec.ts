@@ -2,6 +2,7 @@
  * @jest-environment @happy-dom/jest-environment
  */
 import axios from 'axios';
+import { setPendingLogoutToken } from '../src/logout';
 import type { InternalAxiosRequestConfig } from 'axios';
 import { setTokenHeader } from '../src/headers-helpers';
 
@@ -88,6 +89,7 @@ afterAll(() => {
 });
 
 afterEach(() => {
+  setPendingLogoutToken(undefined);
   delete axios.defaults.headers.common['Authorization'];
   window.localStorage.clear();
   delete (window as Window & { __librechatAuthRecovery?: unknown }).__librechatAuthRecovery;
@@ -774,5 +776,16 @@ describe('axios 401 interceptor — Authorization header guard', () => {
     expect(response.data).toEqual({ ok: true });
     expect(getCallsForUrl('/api/auth/refresh')).toHaveLength(1);
     expect(getCallsForUrl('/api/messages')).toHaveLength(1);
+  });
+});
+
+describe('central revocation pending', () => {
+  it('does not refresh or redirect a 401 during explicit logout retry', async () => {
+    setPendingLogoutToken('expired-revocation-token');
+    const originalHref = window.location.href;
+    mockAdapter.mockImplementation(create401Error);
+    await expect(dataRequest.get('/api/messages')).rejects.toBeDefined();
+    expect(getCallsForUrl('/auth/refresh')).toHaveLength(0);
+    expect(window.location.href).toBe(originalHref);
   });
 });
