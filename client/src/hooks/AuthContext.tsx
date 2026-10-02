@@ -39,15 +39,15 @@ import {
   useLogoutUserMutation,
   useRefreshTokenMutation,
 } from '~/data-provider';
-import { resetChatFilterSessionAtom } from '~/components/Conversations/chatFilters';
-import { TAuthConfig, TUserContext, TAuthContext, TResError } from '~/common';
-import useTimeout from './useTimeout';
-import useLocalize from './useLocalize';
-import store from '~/store';
 import CentralSessionBoundary, {
   signalCentralSessionChange,
 } from '~/components/Auth/CentralSessionBoundary';
+import { resetChatFilterSessionAtom } from '~/components/Conversations/chatFilters';
+import { TAuthConfig, TUserContext, TAuthContext, TResError } from '~/common';
 import { activateCentralDraftScope } from '~/utils/centralDraftScope';
+import useLocalize from './useLocalize';
+import useTimeout from './useTimeout';
+import store from '~/store';
 
 const AuthContext = (import.meta.hot?.data?.__AuthContext ??
   createContext<TAuthContext | undefined>(undefined)) as React.Context<TAuthContext | undefined>;

@@ -18,6 +18,7 @@ router.post('/handoff', requireJwtAuth, requireSameOrigin, async (req, res) => {
   const subject = req.user?.googleId;
   if (
     !centralSSO.enabled() &&
+    // eslint-disable-next-line no-control-regex -- Identity headers must reject ASCII control bytes.
     (typeof subject !== 'string' || !/^[^\s\x00-\x1f\x7f]{1,256}$/.test(subject))
   ) {
     return fail(403);

@@ -9,7 +9,7 @@ beforeEach(() => {
   jest.resetModules();
   localStorage.clear();
   sessionStorage.clear();
-  scope = require('./centralDraftScope');
+  scope = jest.requireActual<typeof import('./centralDraftScope')>('./centralDraftScope');
 });
 test('legacy storage is unchanged and central namespaces do not adopt legacy drafts', () => {
   const key = LocalStorageKeys.TEXT_DRAFT + 'new';

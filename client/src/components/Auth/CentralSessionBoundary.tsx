@@ -1,5 +1,4 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import useLocalize from '~/hooks/useLocalize';
 import { apiBaseUrl } from 'librechat-data-provider';
 import type { ReactNode } from 'react';
 import {
@@ -8,6 +7,7 @@ import {
   lockCentralDrafts,
   unlockCentralDrafts,
 } from '~/utils/centralDraftScope';
+import useLocalize from '~/hooks/useLocalize';
 
 const CHANNEL = 'openschool-central-session-check';
 export function signalCentralSessionChange() {
