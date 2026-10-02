@@ -28,6 +28,8 @@ function denied(status = 401) {
 
 /** Local-only server contract; callback grants cannot be reconstructed from request input. */
 function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(...args) } = {}) {
+  // Demo must never silently fall back to legacy authentication.
+  if (env.OPENSCHOOL_CENTRAL_PROFILE === 'demo') trustProfiles.validate(env);
   const profile = trustProfiles.select(env);
   const { issuer: ISSUER, api: API_URL, client: CLIENT_ID } = profile;
   const callbackGrants = new WeakMap();
@@ -236,6 +238,9 @@ function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(..
   };
   const guardRoutes = (kind) => (req, res, next) => {
     if (!enabled()) {
+      if (env.OPENSCHOOL_CENTRAL_PROFILE === 'demo') {
+        return res.status(503).json({ message: 'Central SSO configuration unavailable' });
+      }
       return next();
     }
     const path = req.path.toLowerCase().replace(/\/+$/, '') || '/';

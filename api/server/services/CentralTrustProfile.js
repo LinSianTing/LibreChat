@@ -17,6 +17,7 @@ function validate(env) {
   const demo = env.OPENSCHOOL_CENTRAL_PROFILE === 'demo';
   const profile = select(env);
   if (
+    (demo && env.OPENSCHOOL_CENTRAL_SSO !== 'true') ||
     (env.OPENSCHOOL_CENTRAL_PROFILE &&
       !['local', 'demo'].includes(env.OPENSCHOOL_CENTRAL_PROFILE)) ||
     env.NODE_ENV !== (demo ? 'production' : 'development') ||

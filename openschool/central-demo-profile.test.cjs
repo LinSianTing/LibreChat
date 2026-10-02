@@ -97,3 +97,39 @@ test('demo recovery UI uses prefixed links and exact CSP without local origin', 
   assert.ok(captured.body.includes('/chat/login?redirect=false'));
   assert.ok(!captured.body.includes('localhost'));
 });
+for (const value of [undefined, '', 'false', '0', '1', 'yes', 'TRUE', ' true ']) {
+  test(`demo rejects non-explicit SSO flag ${JSON.stringify(value)}`, () => {
+    const env = { ...demo(), OPENSCHOOL_CENTRAL_SSO: value };
+    assert.throws(() => validate(env));
+    assert.throws(() => createCentralSSO({ env }));
+  });
+}
+test('demo guards reject disabled flag after initialization across all auth routers', () => {
+  const env = demo();
+  const service = createCentralSSO({ env });
+  env.OPENSCHOOL_CENTRAL_SSO = 'false';
+  for (const kind of ['auth', 'oauth', 'admin']) {
+    let status;
+    let continued = false;
+    const res = {
+      status(value) {
+        status = value;
+        return this;
+      },
+      json() {},
+    };
+    service.guardRoutes(kind)({ path: '/login' }, res, () => {
+      continued = true;
+    });
+    assert.equal(status, 503);
+    assert.equal(continued, false);
+  }
+});
+test('legacy profile without central SSO retains existing routing', () => {
+  const service = createCentralSSO({ env: {} });
+  let continued = false;
+  service.guardRoutes('auth')({ path: '/login' }, {}, () => {
+    continued = true;
+  });
+  assert.equal(continued, true);
+});
