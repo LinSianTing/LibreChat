@@ -15,7 +15,7 @@ beforeEach(() => {
 test('legacy renders without a central network request', () => {
   render(
     <CentralSessionBoundary>
-      <div>Legacy page</div>
+      <div>{'Legacy page'}</div>
     </CentralSessionBoundary>,
   );
   expect(screen.getByText('Legacy page')).toBeVisible();
@@ -27,7 +27,7 @@ test('central content waits for exact 204; later focus covers it until revalidat
     .mockResolvedValueOnce({ status: 503 });
   render(
     <CentralSessionBoundary token="central">
-      <div>Private draft</div>
+      <div>{'Private draft'}</div>
     </CentralSessionBoundary>,
   );
   await waitFor(() => expect(screen.getByText('Private draft')).toBeVisible());
@@ -56,7 +56,7 @@ test('late success after pagehide cannot reveal old content', async () => {
   );
   render(
     <CentralSessionBoundary token="central">
-      <div>Private draft</div>
+      <div>{'Private draft'}</div>
     </CentralSessionBoundary>,
   );
   act(() => {
@@ -79,7 +79,7 @@ test('older successful check cannot override a newer failed check', async () => 
     .mockResolvedValueOnce({ status: 503 });
   render(
     <CentralSessionBoundary token="central">
-      <div>Private draft</div>
+      <div>{'Private draft'}</div>
     </CentralSessionBoundary>,
   );
   act(() => {
@@ -97,9 +97,14 @@ test('cross-tab notification only triggers a check, and failed check keeps priva
   global.BroadcastChannel = class {
     onmessage?: (event: { data: string }) => void;
     constructor() {
+      // Capture the fake channel so the test can deliver a browser event.
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
       channel = this;
     }
+
     close() {}
+
+    postMessage() {}
   } as unknown as typeof BroadcastChannel;
   try {
     (fetch as unknown as jest.Mock)
@@ -107,7 +112,7 @@ test('cross-tab notification only triggers a check, and failed check keeps priva
       .mockResolvedValueOnce({ status: 503 });
     render(
       <CentralSessionBoundary token="central">
-        <div>Private draft</div>
+        <div>{'Private draft'}</div>
       </CentralSessionBoundary>,
     );
     await waitFor(() => expect(screen.getByText('Private draft')).toBeVisible());
@@ -117,6 +122,37 @@ test('cross-tab notification only triggers a check, and failed check keeps priva
     expect(screen.getByText('Private draft')).not.toBeVisible();
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
     expect(screen.getByText('Private draft')).not.toBeVisible();
+  } finally {
+    global.BroadcastChannel = original;
+  }
+});
+
+test('new session signals other tabs once, without echoing checks or exposing identity', async () => {
+  const original = global.BroadcastChannel;
+  const postMessage = jest.fn();
+  global.BroadcastChannel = class {
+    postMessage = postMessage;
+    close() {}
+  } as unknown as typeof BroadcastChannel;
+  try {
+    (fetch as unknown as jest.Mock).mockResolvedValue({ status: 204 });
+    const view = render(
+      <CentralSessionBoundary token="central">
+        <div>{'Private draft'}</div>
+      </CentralSessionBoundary>,
+    );
+    await waitFor(() => expect(screen.getByText('Private draft')).toBeVisible());
+    view.rerender(
+      <CentralSessionBoundary token="central">
+        <div>{'Updated draft'}</div>
+      </CentralSessionBoundary>,
+    );
+    act(() => {
+      window.dispatchEvent(new Event('focus'));
+    });
+    await waitFor(() => expect(screen.getByText('Updated draft')).toBeVisible());
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    expect(postMessage).toHaveBeenCalledWith('check');
   } finally {
     global.BroadcastChannel = original;
   }

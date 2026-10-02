@@ -32,7 +32,13 @@ export default function CentralSessionBoundary({
   const [pending, setPending] = useState(false);
   const [verified, setVerified] = useState(false);
   const retry = useRef<() => void>(() => {});
-  const central = centralReference(token) != null;
+  const reference = centralReference(token);
+  const central = reference != null;
+  useLayoutEffect(() => {
+    // A newly signed-in tab may replace shared cookies while another tab stays open.
+    // Notify only on a session change, not on each check or token refresh.
+    if (reference) signalCentralSessionChange();
+  }, [reference]);
   useLayoutEffect(() => {
     if (!central || !token) return;
     let generation = 0;
