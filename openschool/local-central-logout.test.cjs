@@ -134,6 +134,7 @@ async function fixture(t, { expired = false, localMissing = false, enabled = tru
     '~/server/controllers/auth/TwoFactorAuthController': { verify2FAWithTempToken: pass },
     '~/server/controllers/auth/LoginController': { loginController: pass },
     '~/server/controllers/auth/LogoutController': controller,
+    '~/server/services/CentralBrowserCheck': require('../api/server/services/CentralBrowserCheck'),
     '~/server/middleware': middleware,
   });
   const app = express();
