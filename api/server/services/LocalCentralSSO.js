@@ -1,6 +1,4 @@
-const ISSUER = 'http://localhost:15480/realms/langrace-local';
-const API_URL = 'http://localhost:15481';
-const CLIENT_ID = 'chat-local';
+const trustProfiles = require('./CentralTrustProfile');
 const { createCentralLogout } = require('./CentralLogout');
 const UUID =
   /^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
@@ -30,20 +28,13 @@ function denied(status = 401) {
 
 /** Local-only server contract; callback grants cannot be reconstructed from request input. */
 function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(...args) } = {}) {
+  const profile = trustProfiles.select(env);
+  const { issuer: ISSUER, api: API_URL, client: CLIENT_ID } = profile;
   const callbackGrants = new WeakMap();
   const enabled = () => String(env.OPENSCHOOL_CENTRAL_SSO).trim().toLowerCase() === 'true';
   const assertConfig = () => {
-    if (
-      !enabled() ||
-      env.NODE_ENV !== 'development' ||
-      env.OPENID_ISSUER !== ISSUER ||
-      env.OPENID_CLIENT_ID !== CLIENT_ID ||
-      env.OPENSCHOOL_CENTRAL_API_URL !== API_URL ||
-      !env.OPENSCHOOL_CENTRAL_API_KEY?.trim() ||
-      /^(true|1)$/i.test((env.OPENID_REUSE_TOKENS ?? '').trim())
-    ) {
-      throw denied(503);
-    }
+    if (!enabled()) throw denied(503);
+    trustProfiles.validate(env);
   };
   const binding = (value, { allowExpired = false } = {}) => {
     if (

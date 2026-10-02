@@ -1,5 +1,22 @@
 # OpenSchool fork of LibreChat
 
+## 2026-10-02 controlled Demo trust wiring (not deployed)
+
+Based on `4ec3811f4`: an explicit `OPENSCHOOL_CENTRAL_PROFILE=demo` selects only
+production mode, the fixed OpenSchool HTTPS issuer, chat-demo client, /chat domain,
+internal school API and persistent authenticated Redis. Local defaults retain their
+existing development guards. Incorrect or mixed configuration fails closed.
+Registration/JWT/refresh share this profile; recovery links, CSP and logout callback
+use the fixed /chat prefix. Insecure OIDC discovery remains limited to the exact
+local development issuer, never Demo. Public button configuration should say
+「使用蘭恩帳號登入」, not the synthetic local label.
+
+Three new Demo profile tests, 36 existing central service/hook tests, nine continuation
+HTTP tests and three store tests passed (51 distinct cases); targeted ESLint passed.
+These are configuration/controlled HTTP proofs, not public Keycloak/proxy/cookie
+path validation. No runtime restart or deployment. Proxy cookie rewriting, genuine
+production OIDC roundtrip and A4 browser checks remain release gates.
+
 ## 2026-10-02 original-session logout and expiry recovery (unreleased)
 
 Assigned sole Chat writer, base `4ecb2e6155580d3efc5f8a155f4e1ba327cbf72e`.

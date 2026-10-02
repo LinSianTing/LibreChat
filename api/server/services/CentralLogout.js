@@ -1,9 +1,7 @@
 const crypto = require('node:crypto');
 const cookies = require('cookie');
 
-const ROOT = '/api/auth/central-logout';
-const CALLBACK = `http://localhost:15483${ROOT}/callback`;
-const ISSUER = 'http://localhost:15480/realms/langrace-local';
+const trustProfiles = require('./CentralTrustProfile');
 const RETENTION_MS = 24 * 60 * 60 * 1000;
 const STATE_TTL_MS = 10 * 60 * 1000;
 const opaque = () => crypto.randomBytes(32).toString('hex');
@@ -16,6 +14,10 @@ const invoke = (session, method) =>
 
 /** Logout-only data lives in the existing Express server-side store, never an auth JWT. */
 function createCentralLogout({ assertConfig, binding, match, revoke, env }) {
+  const profile = trustProfiles.select(env);
+  const ROOT = `${profile.prefix}/api/auth/central-logout`;
+  const CALLBACK = `${profile.origin}${ROOT}/callback`;
+  const ISSUER = profile.issuer;
   const locks = new Map();
   const serialized = async (key, operation) => {
     const previous = locks.get(key) ?? Promise.resolve();
@@ -99,8 +101,7 @@ function createCentralLogout({ assertConfig, binding, match, revoke, env }) {
     res.set({
       'Cache-Control': 'no-store',
       'Referrer-Policy': 'no-referrer',
-      'Content-Security-Policy':
-        `default-src 'none'; form-action 'self' ${ISSUER}/protocol/openid-connect/logout; frame-ancestors 'none'; base-uri 'none'`,
+      'Content-Security-Policy': `default-src 'none'; form-action 'self' ${ISSUER}/protocol/openid-connect/logout; frame-ancestors 'none'; base-uri 'none'`,
       'X-Content-Type-Options': 'nosniff',
     });
   const page = (res, status, message, state) => {
@@ -109,7 +110,7 @@ function createCentralLogout({ assertConfig, binding, match, revoke, env }) {
       .status(status)
       .type('html')
       .send(
-        `<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><title>Central sign-out / 中央登出</title><main><h1>Central sign-out / 中央登出</h1><p>${message}</p>${state ? `<form method="post" action="${ROOT}/continue"><input type="hidden" name="state" value="${state}"><button type="submit">登出原工作階段／重試 · Sign out original session / Retry</button></form>` : ''}<p><a href="${ROOT}">返回登出恢復頁 · Sign-out recovery</a></p><p><a href="/login?redirect=false">返回登入頁（不自動登入） · Back to sign-in</a></p></main></html>`,
+        `<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><title>Central sign-out / 中央登出</title><main><h1>Central sign-out / 中央登出</h1><p>${message}</p>${state ? `<form method="post" action="${ROOT}/continue"><input type="hidden" name="state" value="${state}"><button type="submit">登出原工作階段／重試 · Sign out original session / Retry</button></form>` : ''}<p><a href="${ROOT}">返回登出恢復頁 · Sign-out recovery</a></p><p><a href="${profile.prefix}/login?redirect=false">返回登入頁（不自動登入） · Back to sign-in</a></p></main></html>`,
       );
   };
   const prepare = async (req, value, deleteSession) => {
@@ -207,7 +208,7 @@ function createCentralLogout({ assertConfig, binding, match, revoke, env }) {
           value.pending.issued = true;
           await invoke(req.session, 'save');
           const url = new URL(`${ISSUER}/protocol/openid-connect/logout`);
-          url.searchParams.set('client_id', 'chat-local');
+          url.searchParams.set('client_id', profile.client);
           url.searchParams.set('id_token_hint', value.idToken);
           url.searchParams.set('post_logout_redirect_uri', CALLBACK);
           url.searchParams.set('state', value.pending.state);

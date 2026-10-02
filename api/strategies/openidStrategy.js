@@ -943,7 +943,11 @@ async function setupOpenId() {
       undefined,
       {
         [client.customFetch]: customFetch,
-        ...(centralSSO.enabled() ? { execute: [client.allowInsecureRequests] } : {}),
+        ...(centralSSO.enabled() &&
+        process.env.NODE_ENV === 'development' &&
+        process.env.OPENID_ISSUER === 'http://localhost:15480/realms/langrace-local'
+          ? { execute: [client.allowInsecureRequests] }
+          : {}),
       },
     );
 
