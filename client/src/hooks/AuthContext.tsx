@@ -44,6 +44,10 @@ import { TAuthConfig, TUserContext, TAuthContext, TResError } from '~/common';
 import useTimeout from './useTimeout';
 import useLocalize from './useLocalize';
 import store from '~/store';
+import CentralSessionBoundary, {
+  signalCentralSessionChange,
+} from '~/components/Auth/CentralSessionBoundary';
+import { activateCentralDraftScope } from '~/utils/centralDraftScope';
 
 const AuthContext = (import.meta.hot?.data?.__AuthContext ??
   createContext<TAuthContext | undefined>(undefined)) as React.Context<TAuthContext | undefined>;
@@ -105,6 +109,11 @@ const AuthContextProvider = ({
           return;
         }
         const { token, isAuthenticated, user, redirect } = userContext;
+        if (isAuthenticated && !activateCentralDraftScope(token)) {
+          document.documentElement.style.visibility = 'hidden';
+          window.location.replace(`${apiBaseUrl()}/login?redirect=false`);
+          return;
+        }
         setUser(user);
         setToken(token);
         setTokenHeader(token);
@@ -173,6 +182,7 @@ const AuthContextProvider = ({
   });
   const logoutUser = useLogoutUserMutation({
     onSuccess: (data) => {
+      signalCentralSessionChange();
       if (data.code === 'CENTRAL_LOGOUT_BROWSER_MISMATCH') {
         setPendingLogoutToken(undefined);
         logoutPendingRef.current = true;
@@ -223,6 +233,7 @@ const AuthContextProvider = ({
     (redirect?: string) => {
       const revocationToken = getPendingLogoutToken() ?? token;
       if (isCentralSessionToken(revocationToken) || getPendingLogoutToken()) {
+        signalCentralSessionChange();
         setPendingLogoutToken(revocationToken);
         logoutPendingRef.current = true;
         setLogoutPending(true);
@@ -426,7 +437,7 @@ const AuthContextProvider = ({
           )}
         </main>
       ) : (
-        children
+        <CentralSessionBoundary token={token}>{children}</CentralSessionBoundary>
       )}
     </AuthContext.Provider>
   );

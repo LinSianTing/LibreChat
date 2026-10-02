@@ -1,3 +1,4 @@
+import { clearCentralDrafts } from './centralDraftScope';
 import { LocalStorageKeys, TConversation, isUUID } from 'librechat-data-provider';
 
 export function getLocalStorageItems() {
@@ -31,6 +32,7 @@ export function getLocalStorageItems() {
  * on the way in, because a social sign-in returns through the silent refresh and never passes the
  * login mutation at all. */
 export function clearComposerDraftStorage() {
+  if (clearCentralDrafts()) return;
   Object.keys(localStorage).forEach((key) => {
     if (
       key.startsWith(LocalStorageKeys.FILES_DRAFT) ||
