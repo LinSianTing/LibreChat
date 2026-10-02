@@ -1,5 +1,27 @@
 # OpenSchool fork of LibreChat
 
+## Local central identity work in progress (2026-10-02)
+
+OpenSchool SPEC25 owns this isolated experiment. Base `6ba75be8c`; sole writer TL,
+branch `codex/local-central-sso`. No deployment or paid calls.
+
+`api/strategies/localCentralIdentity.js` defines explicit issuer/subject to existing
+Google owner mapping. It accepts only Development configuration and the fixed local
+Keycloak issuer. It re-reads the exact Mongo owner, checks the original Google ID and
+account activity, and returns separate session metadata without mutating provider,
+email, roles or ownership. No email fallback or registration dependency is supplied.
+
+This resolver is **not yet wired into Passport, refresh, JWT or logout**. It is not an
+authentication verifier and accepts only claims already validated by the OIDC library;
+callers still need live session validation. Existing runtime behavior is unchanged.
+The local loopback/database/startup gates, callback integration, signed session
+revocation, two-browser isolation and Google broker remain unfinished.
+
+Dependency-free contract verification:
+`node --test openschool/local-central-identity.test.cjs` (16 passing tests).
+This does not validate Mongo persistence, token cryptography, HTTP login, refresh,
+browser logout or existing chat/attachment access. No upstream build is claimed.
+
 This fork carries the small changes that the OpenSchool platform (開放學校平台) needs on top of
 LibreChat. LibreChat is MIT licensed; upstream is <https://github.com/danny-avila/LibreChat>.
 
