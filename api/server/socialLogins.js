@@ -49,6 +49,14 @@ const getOpenIdSessionExpiry = () => {
  * @returns {Promise<void>}
  */
 async function configureOpenId(app, appConfig) {
+  if (
+    centralSSO.enabled() &&
+    (!isEnabled(process.env.USE_REDIS) || !process.env.REDIS_URI?.trim())
+  ) {
+    throw new Error(
+      'Central SSO requires a persistent Redis session store; memory fallback refused.',
+    );
+  }
   logger.info('Configuring OpenID Connect...');
   const sessionExpiry = getOpenIdSessionExpiry();
   const sessionOptions = {
