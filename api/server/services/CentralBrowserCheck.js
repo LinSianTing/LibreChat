@@ -14,6 +14,10 @@ module.exports =
       await centralSSO.checkBrowserTokens(bearer[1], parsed.refreshToken, deps);
       return res.sendStatus(204);
     } catch (error) {
-      return res.sendStatus(error.status === 503 ? 503 : 401);
+      const rejected =
+        error?.status === 401 ||
+        error?.status === 403 ||
+        ['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError'].includes(error?.name);
+      return res.sendStatus(rejected ? 401 : 503);
     }
   };

@@ -55,7 +55,10 @@ function fixture(unavailable = false) {
     handler({
       centralSSO: service,
       verifyToken: jwt.verify,
-      getUserById: async () => ({ _id: a.chatOwnerId, role: 'USER' }),
+      getUserById: async () => {
+        if (unavailable === 'database') throw new Error('Synthetic database outage');
+        return { _id: a.chatOwnerId, role: 'USER' };
+      },
       findSession: async (query) => session(query.sessionId === 'aaaaaaaaaaaaaaaaaaaaaaaa' ? a : b),
     }),
   );
@@ -71,6 +74,7 @@ for (const [label, unavailable, mismatch, status] of [
   ['same session', false, false, 204],
   ['different browser cookie', false, true, 401],
   ['temporary authority outage', true, false, 503],
+  ['temporary database outage', 'database', false, 503],
 ]) {
   test(`HTTP ${label} returns ${status} without cookie, refresh or revoke side effects`, async () => {
     const f = fixture(unavailable);
