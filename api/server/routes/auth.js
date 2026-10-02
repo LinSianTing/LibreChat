@@ -30,6 +30,21 @@ const setBalanceConfig = createSetBalanceConfig({
 
 const router = express.Router();
 router.use(centralSSO.guardRoutes('auth'));
+router.get('/central-session-check', middleware.requireJwtAuth, async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (!centralSSO.enabled()) return res.sendStatus(404);
+  try {
+    const parsed = require('cookie').parse(req.headers.cookie ?? '');
+    await centralSSO.checkBrowserSession(req.user, parsed.refreshToken, {
+      verifyToken: require('jsonwebtoken').verify,
+      findSession: require('~/models').findSession,
+      getUserById: require('~/models').getUserById,
+    });
+    return res.sendStatus(204);
+  } catch (error) {
+    return res.sendStatus(error.status === 503 ? 503 : 401);
+  }
+});
 const centralLogoutRecovery = centralSSO.logoutRecovery({
   verifyToken: require('jsonwebtoken').verify,
   deleteSession: require('~/models').deleteSession,

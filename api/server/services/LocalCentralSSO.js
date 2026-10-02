@@ -236,6 +236,12 @@ function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(..
     );
     return authorize(payload, user, async () => session);
   };
+  const checkBrowserSession = async (authenticatedUser, refreshToken, deps) => {
+    // Read-only: an old tab may share cookies with a newer login. Never revoke either here.
+    const original = binding(authenticatedUser?.centralSession);
+    const current = await authenticateRefresh(refreshToken, deps);
+    match(original, binding(current.centralSession));
+  };
   const guardRoutes = (kind) => (req, res, next) => {
     if (!enabled()) {
       if (env.OPENSCHOOL_CENTRAL_PROFILE === 'demo') {
@@ -277,6 +283,7 @@ function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(..
     authorize,
     ...logoutFlow,
     authenticateRefresh,
+    checkBrowserSession,
     guardRoutes,
   };
 }

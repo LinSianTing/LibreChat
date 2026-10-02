@@ -762,3 +762,32 @@ test('optional JWT middleware cannot choose reused OpenID tokens when central mo
   middleware({ headers: { cookie: 'untrusted' } }, response(), () => {});
   assert.equal(selected, 'jwt');
 });
+test('browser check matches original tab binding to current refresh without revoke or renewal', async () => {
+  const { service, value, calls } = fixture();
+  const sessionId = 'aaaaaaaaaaaaaaaaaaaaaaaa';
+  const deps = {
+    verifyToken: () => ({ id: value.chatOwnerId, sessionId, centralSession: value }),
+    findSession: async () => ({ _id: sessionId, user: value.chatOwnerId, centralSession: value }),
+    getUserById: async () => user(value),
+  };
+  await service.checkBrowserSession({ centralSession: value }, 'synthetic-refresh', deps);
+  assert.equal(calls.length, 1);
+  assert(calls.every((x) => x.url.endsWith('/validate')));
+  await rejects(() =>
+    service.checkBrowserSession(
+      { centralSession: { ...value, sid: 'other-session' } },
+      'synthetic-refresh',
+      deps,
+    ),
+  );
+  assert(calls.every((x) => x.url.endsWith('/validate')));
+  await rejects(() => service.checkBrowserSession({}, 'synthetic-refresh', deps));
+  await assert.rejects(() =>
+    service.checkBrowserSession({ centralSession: value }, 'invalid', {
+      ...deps,
+      verifyToken: () => {
+        throw Error('invalid signature');
+      },
+    }),
+  );
+});
