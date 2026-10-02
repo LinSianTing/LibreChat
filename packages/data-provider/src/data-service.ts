@@ -13,6 +13,7 @@ import type * as t from './types';
 import * as permissions from './accessPermissions';
 import * as endpoints from './api-endpoints';
 import { uploadEventStream } from './upload';
+import { getPendingLogoutToken } from './logout';
 import * as mcp from './types/mcpServers';
 import * as qt from './types/queuedTurns';
 import * as sch from './types/schedules';
@@ -300,7 +301,19 @@ export const login = (payload: t.TLoginUser): Promise<t.TLoginResponse> => {
   return request.post(endpoints.login(), payload);
 };
 
-export const logout = (): Promise<m.TLogoutResponse> => {
+export const logout = async (): Promise<m.TLogoutResponse> => {
+  const pendingToken = getPendingLogoutToken();
+  if (pendingToken) {
+    const response = await fetch(endpoints.logout(), {
+      method: 'POST',
+      credentials: 'include',
+      headers: { Authorization: `Bearer ${pendingToken}` },
+    });
+    if (!response.ok) {
+      throw new Error('Central logout is incomplete');
+    }
+    return response.json();
+  }
   return request.post(endpoints.logout());
 };
 

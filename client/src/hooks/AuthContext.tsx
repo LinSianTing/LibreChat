@@ -18,6 +18,9 @@ import {
   setTokenHeader,
   isSystemRoleName,
   buildLoginRedirectUrl,
+  getPendingLogoutToken,
+  setPendingLogoutToken,
+  isCentralSessionToken,
 } from 'librechat-data-provider';
 import type * as t from 'librechat-data-provider';
 import type { ReactNode } from 'react';
@@ -39,6 +42,7 @@ import {
 import { resetChatFilterSessionAtom } from '~/components/Conversations/chatFilters';
 import { TAuthConfig, TUserContext, TAuthContext, TResError } from '~/common';
 import useTimeout from './useTimeout';
+import useLocalize from './useLocalize';
 import store from '~/store';
 
 const AuthContext = (import.meta.hot?.data?.__AuthContext ??
@@ -67,6 +71,9 @@ const AuthContextProvider = ({
   children: ReactNode;
 }) => {
   const isExternalRedirectRef = useRef(false);
+  const localize = useLocalize();
+  const [logoutPending, setLogoutPending] = useState(() => !!getPendingLogoutToken());
+  const logoutPendingRef = useRef(logoutPending);
   const [user, setUser] = useRecoilState(store.user);
   const logoutRedirectRef = useRef<string | undefined>(undefined);
   const [token, setToken] = useState<string | undefined>(undefined);
@@ -93,6 +100,9 @@ const AuthContextProvider = ({
   const setUserContext = useMemo(
     () =>
       debounce((userContext: TUserContext) => {
+        if (logoutPendingRef.current) {
+          return;
+        }
         const { token, isAuthenticated, user, redirect } = userContext;
         setUser(user);
         setToken(token);
@@ -162,6 +172,9 @@ const AuthContextProvider = ({
   });
   const logoutUser = useLogoutUserMutation({
     onSuccess: (data) => {
+      setPendingLogoutToken(undefined);
+      logoutPendingRef.current = false;
+      setLogoutPending(false);
       if (data.redirect) {
         /** data.redirect is the IdP's end_session_endpoint URL: an absolute URL generated
          * server-side from trusted IdP metadata (not user input), so isSafeRedirect is bypassed.
@@ -182,6 +195,10 @@ const AuthContextProvider = ({
       });
     },
     onError: (error) => {
+      if (logoutPendingRef.current) {
+        setLogoutPending(true);
+        return;
+      }
       endSessionClientState();
       doSetError((error as Error).message);
       setUserContext({
@@ -196,12 +213,26 @@ const AuthContextProvider = ({
 
   const logout = useCallback(
     (redirect?: string) => {
+      const revocationToken = getPendingLogoutToken() ?? token;
+      if (isCentralSessionToken(revocationToken) || getPendingLogoutToken()) {
+        setPendingLogoutToken(revocationToken);
+        logoutPendingRef.current = true;
+        setLogoutPending(true);
+        setUserContext.cancel();
+        setTokenHeader(undefined);
+        setToken(undefined);
+        setUser(undefined);
+        setIsAuthenticated(false);
+        setIsAuthReady(true);
+        setQueriesEnabled(false);
+        endSessionClientState();
+      }
       if (redirect) {
         logoutRedirectRef.current = redirect;
       }
       logoutUser.mutate(undefined);
     },
-    [logoutUser],
+    [logoutUser, token, setUser, setQueriesEnabled, setUserContext],
   );
 
   const userQuery = useGetUserQuery({ enabled: !!(token ?? '') });
@@ -211,6 +242,9 @@ const AuthContextProvider = ({
   };
 
   const silentRefresh = useCallback(() => {
+    if (logoutPendingRef.current) {
+      return;
+    }
     if (authConfig?.test === true) {
       return;
     }
@@ -219,7 +253,7 @@ const AuthContextProvider = ({
     }
     refreshToken.mutate(undefined, {
       onSuccess: (data: t.TRefreshTokenResponse | undefined) => {
-        if (isExternalRedirectRef.current) {
+        if (isExternalRedirectRef.current || logoutPendingRef.current) {
           return;
         }
         const { user, token = '' } = data ?? {};
@@ -250,7 +284,7 @@ const AuthContextProvider = ({
         }
       },
       onError: (error) => {
-        if (isExternalRedirectRef.current) {
+        if (isExternalRedirectRef.current || logoutPendingRef.current) {
           return;
         }
         console.log('refreshToken mutation error:', error);
@@ -268,7 +302,10 @@ const AuthContextProvider = ({
   }, []);
 
   useEffect(() => {
-    if (isExternalRedirectRef.current) {
+    if (isExternalRedirectRef.current || logoutPendingRef.current) {
+      if (logoutPendingRef.current) {
+        setTokenHeader(undefined);
+      }
       return;
     }
     if (userQuery.data) {
@@ -305,6 +342,9 @@ const AuthContextProvider = ({
 
   useEffect(() => {
     const handleTokenUpdate = (event: CustomEvent<string>) => {
+      if (logoutPendingRef.current) {
+        return;
+      }
       console.log('tokenUpdated event received event');
       setUserContext({
         token: event.detail,
@@ -354,7 +394,29 @@ const AuthContextProvider = ({
     ],
   );
 
-  return <AuthContext.Provider value={memoedValue}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={memoedValue}>
+      {logoutPending ? (
+        <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-surface-primary p-6 text-text-primary">
+          <p role="alert">
+            {localize(
+              logoutUser.isLoading ? 'com_auth_logout_pending' : 'com_auth_logout_incomplete',
+            )}
+          </p>
+          <button
+            type="button"
+            disabled={logoutUser.isLoading}
+            onClick={() => logout()}
+            className="rounded border border-border-medium px-4 py-2 disabled:opacity-50"
+          >
+            {localize('com_auth_logout_retry')}
+          </button>
+        </main>
+      ) : (
+        children
+      )}
+    </AuthContext.Provider>
+  );
 };
 
 const useAuthContext = () => {

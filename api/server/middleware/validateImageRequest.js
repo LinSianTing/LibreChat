@@ -1,4 +1,6 @@
 const cookie = require('cookie');
+const jwt = require('jsonwebtoken');
+const centralSSO = require('~/server/services/LocalCentralSSO');
 const {
   createImageAuthorizationMiddleware,
   getAppConfigOptionsFromUser,
@@ -43,6 +45,15 @@ function createValidateImageRequest(config = {}) {
         };
 
   const deps = {
+    isCentralSSOEnabled: centralSSO.enabled,
+    authenticateCentralSession: async (token) => {
+      const user = await centralSSO.authenticateRefresh(token, {
+        verifyToken: jwt.verify,
+        findSession,
+        getUserById,
+      });
+      return user.id;
+    },
     parseCookies: cookie.parse,
     isOpenIdReuseEnabled: () => isEnabled(process.env.OPENID_REUSE_TOKENS),
     getBasePath,

@@ -5,7 +5,8 @@ import React from 'react';
 import { RecoilRoot } from 'recoil';
 import { getDefaultStore } from 'jotai';
 import { MemoryRouter } from 'react-router-dom';
-import { render, act } from '@testing-library/react';
+import { render, act, fireEvent } from '@testing-library/react';
+import { getPendingLogoutToken, setPendingLogoutToken } from 'librechat-data-provider';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { TAuthConfig } from '~/common';
 import {
@@ -42,6 +43,8 @@ let mockCapturedLogoutOptions: {
 };
 
 const mockRefreshMutate = jest.fn();
+const mockLogoutMutate = jest.fn();
+jest.mock('../useLocalize', () => () => (key: string) => key);
 
 jest.mock('~/data-provider', () => ({
   useLoginUserMutation: jest.fn(
@@ -59,7 +62,7 @@ jest.mock('~/data-provider', () => ({
       onError: (...args: unknown[]) => void;
     }) => {
       mockCapturedLogoutOptions = options;
-      return { mutate: jest.fn() };
+      return { mutate: mockLogoutMutate };
     },
   ),
   useRefreshTokenMutation: jest.fn(() => ({ mutate: mockRefreshMutate })),
@@ -83,7 +86,9 @@ function TestConsumer() {
       data-auth-ready={ctx.isAuthReady}
       data-error={ctx.error ?? ''}
       data-roles={JSON.stringify(ctx.roles ?? {})}
-    />
+    >
+      <button onClick={() => ctx.logout()}>logout</button>
+    </div>
   );
 }
 
@@ -714,5 +719,66 @@ describe('AuthContextProvider — custom role detection and fetching', () => {
 
     mockUseGetRole.mockReturnValue({ data: null });
     jest.useRealTimers();
+  });
+});
+
+describe('central incomplete logout', () => {
+  const token = `header.${btoa(JSON.stringify({ centralSession: { reference: 'reference' } }))}.signature`;
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setPendingLogoutToken(undefined);
+  });
+  afterEach(() => {
+    setPendingLogoutToken(undefined);
+    jest.useRealTimers();
+  });
+
+  it('retains retry credential and ignores refresh and token events after revoke fails', () => {
+    jest.useFakeTimers();
+    const view = renderProviderLive();
+    const refreshOptions = mockRefreshMutate.mock.calls[0][1];
+    act(() => {
+      refreshOptions.onSuccess({ user: { id: '1', role: 'USER' }, token });
+    });
+    act(() => {
+      jest.advanceTimersByTime(100);
+    });
+    mockNavigate.mockClear();
+    mockRefreshMutate.mockClear();
+    fireEvent.click(view.getByText('logout'));
+    expect(mockLogoutMutate).toHaveBeenCalledTimes(1);
+    act(() => {
+      mockCapturedLogoutOptions.onError(new Error('503'));
+    });
+    expect(view.getByRole('alert')).toHaveTextContent('com_auth_logout_incomplete');
+    expect(getPendingLogoutToken()).toBe(token);
+    act(() => {
+      refreshOptions.onSuccess({ user: { id: '1', role: 'USER' }, token: 'resurrected' });
+      window.dispatchEvent(new CustomEvent('tokenUpdated', { detail: 'resurrected' }));
+      jest.advanceTimersByTime(100);
+    });
+    expect(view.queryByTestId('consumer')).toBeNull();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockRefreshMutate).not.toHaveBeenCalled();
+    fireEvent.click(view.getByText('com_auth_logout_retry'));
+    expect(mockLogoutMutate).toHaveBeenCalledTimes(2);
+    expect(getPendingLogoutToken()).toBe(token);
+  });
+
+  it('restores retry UI without mounting login/OIDC or silently refreshing', () => {
+    setPendingLogoutToken(token);
+    const view = renderProviderLive();
+    expect(view.queryByTestId('consumer')).toBeNull();
+    expect(mockRefreshMutate).not.toHaveBeenCalled();
+    expect(mockLogoutMutate).not.toHaveBeenCalled();
+    fireEvent.click(view.getByText('com_auth_logout_retry'));
+    expect(mockLogoutMutate).toHaveBeenCalledTimes(1);
+    const replace = jest.spyOn(window.location, 'replace').mockImplementation(() => {});
+    act(() => {
+      mockCapturedLogoutOptions.onSuccess({ redirect: 'http://localhost:15480/logout' });
+    });
+    expect(getPendingLogoutToken()).toBeUndefined();
+    expect(replace).toHaveBeenCalledWith('http://localhost:15480/logout');
+    expect(mockRefreshMutate).not.toHaveBeenCalled();
   });
 });

@@ -44,19 +44,22 @@ function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(..
       throw denied(503);
     }
   };
-  const binding = (value) => {
+  const binding = (value, { allowExpired = false } = {}) => {
     if (
       !value ||
+      typeof value.reference !== 'string' ||
       !UUID.test(value.reference ?? '') ||
+      typeof value.memberId !== 'string' ||
       !UUID.test(value.memberId ?? '') ||
       value.issuer !== ISSUER ||
       value.clientId !== CLIENT_ID ||
       !identifier(value.subject) ||
       !identifier(value.sid) ||
+      typeof value.chatOwnerId !== 'string' ||
       !OWNER.test(value.chatOwnerId ?? '') ||
       typeof value.expiresAtUtc !== 'string' ||
       !Number.isFinite(Date.parse(value.expiresAtUtc)) ||
-      Date.parse(value.expiresAtUtc) <= Date.now()
+      (!allowExpired && Date.parse(value.expiresAtUtc) <= Date.now())
     ) {
       throw denied();
     }
@@ -207,14 +210,43 @@ function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(..
     const central = await validate(session.centralSession);
     return attach(owner(user, central), central);
   };
-  const logout = async (req, res, { deleteSession, clearCloudFrontCookies }) => {
+  const logout = async (req, res, { verifyToken, deleteSession, clearCloudFrontCookies }) => {
     assertConfig();
-    const central = binding(req.user?.centralSession);
-    if (!OWNER.test(req.centralSessionId ?? '')) {
+    if (req.method !== 'POST' || req.baseUrl !== '/api/auth' || req.path !== '/logout') {
       throw denied();
     }
-    await request('revoke', { reference: central.reference });
-    await deleteSession({ sessionId: req.centralSessionId });
+    const authorization = req.headers?.authorization;
+    const bearer =
+      typeof authorization === 'string'
+        ? /^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/i.exec(authorization)
+        : null;
+    if (!bearer) {
+      throw denied();
+    }
+    let payload;
+    try {
+      payload = verifyToken(bearer[1], env.JWT_SECRET, {
+        algorithms: ['HS256'],
+        ignoreExpiration: true,
+      });
+    } catch {
+      throw denied();
+    }
+    const central = binding(payload?.centralSession, { allowExpired: true });
+    if (
+      payload.id !== central.chatOwnerId ||
+      typeof payload.sessionId !== 'string' ||
+      !OWNER.test(payload.sessionId) ||
+      !Number.isFinite(payload.exp)
+    ) {
+      throw denied();
+    }
+    try {
+      await request('revoke', { reference: central.reference });
+    } catch {
+      throw denied(503);
+    }
+    await deleteSession({ sessionId: payload.sessionId });
     if (req.session) {
       await new Promise((resolve, reject) =>
         req.session.destroy((error) => (error ? reject(denied(503)) : resolve())),
@@ -238,6 +270,31 @@ function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(..
       message: 'Chat session revoked; identity-provider logout pending',
       redirect: endSession.toString(),
     });
+  };
+  const authenticateRefresh = async (token, { verifyToken, findSession, getUserById }) => {
+    assertConfig();
+    const payload = verifyToken(token, env.JWT_REFRESH_SECRET, { algorithms: ['HS256'] });
+    const signed = binding(payload?.centralSession);
+    if (
+      payload.id !== signed.chatOwnerId ||
+      typeof payload.sessionId !== 'string' ||
+      !OWNER.test(payload.sessionId)
+    ) {
+      throw denied();
+    }
+    const session = await findSession({
+      userId: payload.id,
+      sessionId: payload.sessionId,
+      refreshToken: token,
+    });
+    if (!session || String(session._id) !== payload.sessionId) {
+      throw denied();
+    }
+    const user = await getUserById(
+      payload.id,
+      '-password -__v -totpSecret -backupCodes +agentTriggerDeletionStartedAt',
+    );
+    return authorize(payload, user, async () => session);
   };
   const guardRoutes = (kind) => (req, res, next) => {
     if (!enabled()) {
@@ -276,6 +333,7 @@ function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(..
     prepareTokens,
     authorize,
     logout,
+    authenticateRefresh,
     guardRoutes,
   };
 }

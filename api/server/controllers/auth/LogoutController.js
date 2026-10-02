@@ -1,4 +1,5 @@
 const cookies = require('cookie');
+const jwt = require('jsonwebtoken');
 const centralSSO = require('~/server/services/LocalCentralSSO');
 const { deleteSession } = require('~/models');
 const { isEnabled, math, clearCloudFrontCookies } = require('@librechat/api');
@@ -28,7 +29,11 @@ function parseMaxLogoutUrlLength(defaultValue = 2000) {
 const logoutController = async (req, res) => {
   if (centralSSO.enabled()) {
     try {
-      return await centralSSO.logout(req, res, { deleteSession, clearCloudFrontCookies });
+      return await centralSSO.logout(req, res, {
+        verifyToken: jwt.verify,
+        deleteSession,
+        clearCloudFrontCookies,
+      });
     } catch (error) {
       return res
         .status(error.status === 401 ? 401 : 503)

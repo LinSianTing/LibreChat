@@ -9,6 +9,7 @@ const mockDeleteAllRefreshTokenBridges = jest.fn();
 const mockRevokeOpenIDRefreshTokenChain = jest.fn();
 
 jest.mock('cookie');
+jest.mock('~/models', () => ({ deleteSession: jest.fn() }));
 jest.mock('@librechat/api', () => ({
   isEnabled: (...args) => mockIsEnabled(...args),
   math: (_value, fallback) => fallback,

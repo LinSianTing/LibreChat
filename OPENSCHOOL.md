@@ -2,7 +2,8 @@
 
 ## Local central SSO wiring (2026-10-02)
 
-Assigned Chat worker, source `97a9169f52675395dbb650d3cf5ca6ed0eed9735`, branch
+Assigned Chat worker, original source `97a9169f52675395dbb650d3cf5ca6ed0eed9735`;
+TC follow-up source `85feb0561c17562cd85a904ab9d9c4168c4f00bd`, branch
 `codex/local-central-sso`. This package wires the existing Passport callback, Chat-owned
 JWT/refresh tokens, Mongo sessions and logout. It is engineering evidence, not P0 or
 product acceptance. No deployment, Docker, paid calls, push or gateway changes.
@@ -42,31 +43,82 @@ owns S256 PKCE, stored state/nonce and authorization-code validation before our 
   headers and Web consumers remain the main TL's package.
 - Local/password registration, other OAuth providers, admin auth and token-reuse
   middleware paths are blocked only in central mode. Feature off retains prior behavior.
-- Logout revokes the authenticated reference first, deletes only its local session,
-  destroys the current browser's server session and clears auth cookies. It returns a
-  Keycloak end-session URL with `client_id=chat-local` and exact
-  `post_logout_redirect_uri=http://localhost:15483/`. The response explicitly describes
-  IdP logout as pending; it does not claim Google/federated logout. The other browser's
-  reference and local session are retained. The existing JWT guard remains fail-closed:
-  if `/validate` is unavailable before logout, Chat does not enter `/revoke`; Web's
-  outage-tolerant revoke capability does not bypass Chat authentication.
+- Only exact central POST /api/auth/logout accepts a revocation-only Authorization
+  Bearer credential. Real jsonwebtoken verifies the Chat signature with JWT_SECRET,
+  HS256 only, allowing expiry only here. Signed owner, local-session ID and central
+  binding must be structurally valid. It does not invoke live authorization or require
+  the Mongo TTL record to remain, and never puts this credential into req.user.
+  Same-origin middleware still applies; body/query/provider/cookie tokens are ignored.
+- Logout revokes the original reference first. Any Web revoke failure returns 503
+  without deleting the local session or clearing browser cookies. Success deletes only
+  the signed local session (idempotently), clears the current browser's cookies/session
+  and returns Keycloak end-session with client_id=chat-local and exact
+  post_logout_redirect_uri=http://localhost:15483/. IdP logout remains pending; this
+  response is not evidence of Google/federated logout. Another browser is retained.
+- A central logout attempt retains its access token only as a revocation retry
+  credential in tab sessionStorage (memory fallback), clears the general token header,
+  and replaces authenticated/login content with an incomplete-logout/retry screen.
+  Silent refresh, token-update recovery and automatic OIDC are suppressed until an
+  explicit retry succeeds. Retry uses only the logout endpoint, outside Axios recovery.
+- Central images and all three shared-file routes validate signed refresh binding,
+  Mongo session/owner and live Web reference before access, even with insecure image
+  links configured. A denied Authorization credential cannot fall back to a cookie.
+  Public-client startup advertises forced-PKCE OIDC and hides blocked login providers.
+  Feature-off regression behavior is preserved.
 
-Verification and remaining integration checks:
+Verification on the TC follow-up source plus this working patch:
 
-```sh
-node --test openschool/local-central-identity.test.cjs openschool/local-central-sso.test.cjs
-```
+- Existing-lock npm ci succeeded (Node 24.18.0/npm 11.16.0, HUSKY=0,
+  SCARF_ANALYTICS=false); package-lock.json is unchanged. Root node_modules and built
+  workspace dist outputs are available for TL runtime integration.
+- Builds: build:data-provider, build:data-schemas, build:api, build:client-package pass.
+  Full tsc --noEmit for client, packages/data-schemas and packages/api is checked
+  separately from the dependency-free tests; data-provider build includes declaration
+  typechecking.
+- node --test openschool/local-central-identity.test.cjs
+  openschool/local-central-sso.test.cjs openschool/local-central-logout.test.cjs
+  openschool/local-central-access.test.cjs: 65/65 pass. The original 52 use explicit
+  dependency substitutes. The additional 13 use installed real jsonwebtoken, Express,
+  CORS and transpiled production middleware/router bodies with HTTP/model boundaries
+  substituted. They cover expired/TTL-missing/outage logout, real forged signatures,
+  Origin and exact-route boundaries, revoke failure retry, browser isolation, image
+  access, all share-file routes, and public-client config. No real Mongo is claimed.
+- API Jest: LogoutController.spec.js, auth.cross-site.test.js and
+  optionalShareFileAuth.spec.js: 48/48; routes/__tests__/config.spec.js: 70/70.
+  packages/api images/authorization.spec.ts: 25/25. Data-provider
+  request-interceptor.spec.ts and logout.spec.ts: 24/24. Client
+  hooks/__tests__/AuthContext.spec.tsx: 27/27 (including incomplete logout/reload,
+  no silent refresh, ignored in-flight success, and explicit retry).
+- Changed JS syntax, Prettier and git diff --check are separate static checks.
+  npm ci reported 16 audit findings (7 low, 2 moderate, 7 high); no dependency upgrades
+  or audit fixes were applied. npm's allow-scripts policy blocked seven package scripts,
+  including mongodb-memory-server binary postinstall; this batch did not run real Mongo.
+- Live Web/Keycloak/Google, actual browser redirects, chat/attachments end-to-end,
+  frontend production bundle and full repository tests remain unverified here.
+  User-reported Web real-KC success is not a Chat joint-runtime result. Main TL owns
+  integration/review; no P0 or product acceptance is claimed.
 
-Result: **52/52 passing** (36 central-session tests and 16 historical helper tests).
-The dependency-free suite exercises real CJS hook bodies with explicit HTTP/model/library
-substitutes, including callback, token issuance after reload, JWT, refresh, route gates,
-deadline and two-browser revocation isolation. It does **not** exercise real Mongo,
-JWT cryptography, live Web/Keycloak/Google, browser redirects or existing chat/attachments.
-Changed JS syntax, formatting and `git diff --check` are checked separately. Full
-data-schemas `tsc --noEmit` was attempted but cannot pass without the absent workspace
-dependencies/types (including mongoose, librechat-data-provider, Jest and Node types).
-No upstream build, Lighthouse or full integration pass is claimed. Main TL owns review,
-dependency builds (including data-schemas), all-chain verification and product acceptance.
+Read-only discovery handoff (no gateway/header changes in this batch):
+
+- /api/models uses requireJwtAuth, ModelController.loadModels, then loadConfigModels
+  (packages/api/src/endpoints/config/models.ts) and fetchModels
+  (packages/api/src/endpoints/models.ts). req.user reaches userObject, including the
+  trusted memberId and centralSessionReference in central mode.
+- fetchModels accepts headers and userObject. Its MODEL_QUERIES cache is keyed by
+  baseURL+API key for two minutes; it skips that cache when both nonempty headers and
+  userObject are supplied (or skipCache/userIdQuery applies). Config discovery can fall
+  back to configured model defaults after empty/failed discovery. Main integration must
+  account for that fallback and token-config caching when introducing per-user filtering.
+- The current resolveHeaders/createSafeUser allowlist in packages/api/src/utils/env.ts
+  does not expose memberId or centralSessionReference as template fields. Their presence
+  on req.user alone does not send them to Web. Main TL must wire the trusted values to
+  X-OpenSchool-Member-Id and X-OpenSchool-Central-Session with the existing service key;
+  this package deliberately leaves that integration unchanged. No register/validate/
+  revoke field, URL or secret-header differences from the assigned Web contract.
+- Main reports central Web /models now requires the same live dual headers and returns
+  private,no-store per-user results; headerless discovery receives 401. Its planned Chat
+  fetch:false/default-personal startup and per-user/no-global-cache adaptation are not
+  implemented or runtime-verified in this batch.
 
 This fork carries the small changes that the OpenSchool platform (開放學校平台) needs on top of
 LibreChat. LibreChat is MIT licensed; upstream is <https://github.com/danny-avila/LibreChat>.

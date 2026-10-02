@@ -58,6 +58,23 @@ function fixture(overrides = {}) {
   return { value, calls, service };
 }
 const rejects = (fn) => assert.rejects(fn, /Central session is not authorized/);
+const logoutRequest = () => ({
+  method: 'POST',
+  baseUrl: '/api/auth',
+  path: '/logout',
+  headers: { authorization: 'Bearer stub.payload.signature' },
+});
+/** Dependency-free wiring substitute only; real signature tests live in local-central-logout.test.cjs. */
+const logoutVerifier = (value) => (_token, secret, options) => {
+  assert.equal(secret, env.JWT_SECRET);
+  assert.deepEqual(options, { algorithms: ['HS256'], ignoreExpiration: true });
+  return {
+    id: value.chatOwnerId,
+    sessionId: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+    centralSession: value,
+    exp: 1,
+  };
+};
 const response = () => ({
   cookies: [],
   cleared: [],
@@ -296,8 +313,7 @@ test('logout revokes first, deletes only signed local session, destroys browser 
   });
   const sessions = new Set(['aaaaaaaaaaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbbbbbbbbbb']);
   const req = {
-    user: { centralSession: value },
-    centralSessionId: 'aaaaaaaaaaaaaaaaaaaaaaaa',
+    ...logoutRequest(),
     session: {
       destroy(cb) {
         order.push('destroy');
@@ -307,6 +323,7 @@ test('logout revokes first, deletes only signed local session, destroys browser 
   };
   const res = response();
   await service.logout(req, res, {
+    verifyToken: logoutVerifier(value),
     deleteSession: async ({ sessionId }) => {
       order.push('delete');
       sessions.delete(sessionId);
@@ -331,14 +348,11 @@ test('failed revoke does not falsely clear local state or redirect', async () =>
   const { service, value } = fixture({ fetchImpl: async () => ({ status: 503 }) });
   const res = response();
   await rejects(() =>
-    service.logout(
-      { user: { centralSession: value }, centralSessionId: 'aaaaaaaaaaaaaaaaaaaaaaaa' },
-      res,
-      {
-        deleteSession: () => assert.fail('must not delete before revoke'),
-        clearCloudFrontCookies: () => assert.fail('must not clear before revoke'),
-      },
-    ),
+    service.logout(logoutRequest(), res, {
+      verifyToken: logoutVerifier(value),
+      deleteSession: () => assert.fail('must not delete before revoke'),
+      clearCloudFrontCookies: () => assert.fail('must not clear before revoke'),
+    }),
   );
   assert.equal(res.body, undefined);
   assert.deepEqual(res.cleared, []);
@@ -629,14 +643,11 @@ test('revoking browser A rejects A JWT/refresh while browser B remains authorize
   });
   const find = async ({ sessionId }) => sessions.get(sessionId);
   await service.authorize(payload('aaaaaaaaaaaaaaaaaaaaaaaa', a), user(a), find);
-  await service.logout(
-    { user: { centralSession: a }, centralSessionId: 'aaaaaaaaaaaaaaaaaaaaaaaa' },
-    response(),
-    {
-      deleteSession: async ({ sessionId }) => sessions.delete(sessionId),
-      clearCloudFrontCookies() {},
-    },
-  );
+  await service.logout(logoutRequest(), response(), {
+    verifyToken: logoutVerifier(a),
+    deleteSession: async ({ sessionId }) => sessions.delete(sessionId),
+    clearCloudFrontCookies() {},
+  });
   await rejects(() => service.authorize(payload('aaaaaaaaaaaaaaaaaaaaaaaa', a), user(a), find));
   await rejects(() =>
     service.prepareTokens(a.chatOwnerId, { user: a.chatOwnerId, centralSession: a }, {}, async () =>

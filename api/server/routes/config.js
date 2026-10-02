@@ -1,4 +1,5 @@
 const express = require('express');
+const centralSSO = require('~/server/services/LocalCentralSSO');
 const {
   isEnabled,
   isLangfuseConnectionAvailable,
@@ -57,9 +58,12 @@ function isBirthday() {
  * See client consumers under `client/src/components/Auth/` and `client/src/routes/Layouts/Startup.tsx`.
  */
 function buildPreLoginPayload() {
+  const central = centralSSO.enabled();
   const isOpenIdEnabled =
     !!process.env.OPENID_CLIENT_ID &&
-    (isEnabled(process.env.OPENID_USE_PKCE) || !!process.env.OPENID_CLIENT_SECRET?.trim()) &&
+    (central ||
+      isEnabled(process.env.OPENID_USE_PKCE) ||
+      !!process.env.OPENID_CLIENT_SECRET?.trim()) &&
     !!process.env.OPENID_ISSUER &&
     !!process.env.OPENID_SESSION_SECRET;
 
@@ -109,6 +113,22 @@ function buildPreLoginPayload() {
 
   if (ldap) {
     payload.ldap = ldap;
+  }
+
+  if (central) {
+    Object.assign(payload, {
+      discordLoginEnabled: false,
+      facebookLoginEnabled: false,
+      githubLoginEnabled: false,
+      googleLoginEnabled: false,
+      appleLoginEnabled: false,
+      samlLoginEnabled: false,
+      emailLoginEnabled: false,
+      passwordResetEnabled: false,
+      registrationEnabled: false,
+      socialLoginEnabled: isOpenIdEnabled,
+    });
+    delete payload.ldap;
   }
 
   return payload;
@@ -247,7 +267,9 @@ router.get('/', async function (req, res) {
       /** @type {Partial<TStartupConfig>} */
       const payload = {
         ...preLoginPayload,
-        socialLogins: baseConfig?.registration?.socialLogins ?? defaultSocialLogins,
+        socialLogins: centralSSO.enabled()
+          ? ['openid']
+          : (baseConfig?.registration?.socialLogins ?? defaultSocialLogins),
         turnstile: baseConfig?.turnstileConfig,
         ...(rum ? { rum } : {}),
       };
@@ -319,7 +341,9 @@ router.get('/', async function (req, res) {
       ...publicSharePayload,
       ...buildPostLoginPayload(),
       sharedLinksSnapshotFilesEnabled: sharedLinksEnabled && isFileSnapshotEnabled(appConfig),
-      socialLogins: appConfig?.registration?.socialLogins ?? defaultSocialLogins,
+      socialLogins: centralSSO.enabled()
+        ? ['openid']
+        : (appConfig?.registration?.socialLogins ?? defaultSocialLogins),
       interface: appConfig?.interfaceConfig,
       titleGenerationTiming: resolveTitleTiming({
         appConfig,
