@@ -242,6 +242,15 @@ function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(..
     const current = await authenticateRefresh(refreshToken, deps);
     match(original, binding(current.centralSession));
   };
+  const checkBrowserTokens = async (accessToken, refreshToken, deps) => {
+    assertConfig();
+    const payload = deps.verifyToken(accessToken, env.JWT_SECRET, { algorithms: ['HS256'] });
+    const signed = binding(payload?.centralSession);
+    if (payload.id !== signed.chatOwnerId) throw denied();
+    const user = await deps.getUserById(payload.id);
+    const authenticated = await authorize(payload, user, deps.findSession);
+    await checkBrowserSession(authenticated, refreshToken, deps);
+  };
   const guardRoutes = (kind) => (req, res, next) => {
     if (!enabled()) {
       if (env.OPENSCHOOL_CENTRAL_PROFILE === 'demo') {
@@ -284,6 +293,7 @@ function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(..
     ...logoutFlow,
     authenticateRefresh,
     checkBrowserSession,
+    checkBrowserTokens,
     guardRoutes,
   };
 }

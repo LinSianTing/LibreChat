@@ -67,3 +67,57 @@ test('late success after pagehide cannot reveal old content', async () => {
   });
   expect(screen.queryByText('Private draft')).toBeNull();
 });
+
+test('older successful check cannot override a newer failed check', async () => {
+  let resolve!: (value: { status: number }) => void;
+  (fetch as unknown as jest.Mock)
+    .mockReturnValueOnce(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    )
+    .mockResolvedValueOnce({ status: 503 });
+  render(
+    <CentralSessionBoundary token="central">
+      <div>Private draft</div>
+    </CentralSessionBoundary>,
+  );
+  act(() => {
+    window.dispatchEvent(new Event('focus'));
+  });
+  await act(async () => {
+    resolve({ status: 204 });
+  });
+  expect(screen.queryByText('Private draft')).toBeNull();
+});
+
+test('cross-tab notification only triggers a check, and failed check keeps private content covered', async () => {
+  const original = global.BroadcastChannel;
+  let channel: { onmessage?: (event: { data: string }) => void };
+  global.BroadcastChannel = class {
+    onmessage?: (event: { data: string }) => void;
+    constructor() {
+      channel = this;
+    }
+    close() {}
+  } as unknown as typeof BroadcastChannel;
+  try {
+    (fetch as unknown as jest.Mock)
+      .mockResolvedValueOnce({ status: 204 })
+      .mockResolvedValueOnce({ status: 503 });
+    render(
+      <CentralSessionBoundary token="central">
+        <div>Private draft</div>
+      </CentralSessionBoundary>,
+    );
+    await waitFor(() => expect(screen.getByText('Private draft')).toBeVisible());
+    act(() => {
+      channel.onmessage?.({ data: 'check' });
+    });
+    expect(screen.getByText('Private draft')).not.toBeVisible();
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Private draft')).not.toBeVisible();
+  } finally {
+    global.BroadcastChannel = original;
+  }
+});

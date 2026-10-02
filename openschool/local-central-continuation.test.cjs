@@ -101,6 +101,7 @@ async function fixture(t) {
   });
   const router = load('api/server/routes/auth.js', {
     express,
+    '~/server/services/CentralBrowserCheck': require('../api/server/services/CentralBrowserCheck'),
     jsonwebtoken: jwt,
     '~/models': { deleteSession },
     '~/server/services/LocalCentralSSO': service,
