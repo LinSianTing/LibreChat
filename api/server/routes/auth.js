@@ -30,6 +30,18 @@ const setBalanceConfig = createSetBalanceConfig({
 
 const router = express.Router();
 router.use(centralSSO.guardRoutes('auth'));
+const centralLogoutRecovery = centralSSO.logoutRecovery({
+  verifyToken: require('jsonwebtoken').verify,
+  deleteSession: require('~/models').deleteSession,
+});
+router.get('/central-logout', centralLogoutRecovery);
+router.get('/central-logout/callback', centralLogoutRecovery);
+router.post(
+  '/central-logout/continue',
+  middleware.requireSameOrigin,
+  express.urlencoded({ extended: false, limit: '1kb' }),
+  centralLogoutRecovery,
+);
 const getCloudFrontAuthCookieRefreshResult = (req, res) => {
   const warmedResult = req.cloudFrontAuthCookieRefreshResult;
   if (warmedResult && (warmedResult.attempted || !warmedResult.enabled)) {

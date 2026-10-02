@@ -229,6 +229,8 @@ test('public-client startup config shows forced-PKCE OIDC and hides blocked prov
   assert.equal(response.status, 200);
   const data = await response.json();
   assert.equal(data.openidLoginEnabled, true);
+  assert.equal(data.centralLogoutEnabled, true);
+  assert.equal(data.openidAutoRedirect, false);
   assert.equal(data.socialLoginEnabled, true);
   assert.deepEqual(data.socialLogins, ['openid']);
   for (const name of [

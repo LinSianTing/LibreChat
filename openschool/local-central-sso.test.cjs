@@ -57,7 +57,8 @@ function fixture(overrides = {}) {
   });
   return { value, calls, service };
 }
-const rejects = (fn) => assert.rejects(fn, /Central session is not authorized/);
+const rejects = (fn) =>
+  assert.rejects(fn, /Central session is not authorized|Central logout unavailable/);
 const logoutRequest = () => ({
   method: 'POST',
   baseUrl: '/api/auth',
@@ -79,6 +80,9 @@ const response = () => ({
   cookies: [],
   cleared: [],
   code: 200,
+  set() {
+    return this;
+  },
   cookie(name, value) {
     this.cookies.push({ name, value });
     return this;
@@ -301,7 +305,7 @@ test('2.5-second deadline includes stalled body parsing and aborts without retry
   assert.equal(signal.aborted, true);
   assert.equal(count, 1);
 });
-test('logout revokes first, deletes only signed local session, destroys browser state, returns exact Keycloak redirect', async () => {
+test('logout without browser proof revokes only signed session and never clears cookies or redirects', async () => {
   const order = [];
   const { service, value } = fixture({
     fetchImpl: async (url, options) => {
@@ -330,19 +334,11 @@ test('logout revokes first, deletes only signed local session, destroys browser 
     },
     clearCloudFrontCookies: () => {},
   });
-  assert.deepEqual(order, ['revoke', 'delete', 'destroy']);
+  assert.deepEqual(order, ['revoke', 'delete']);
   assert.deepEqual([...sessions], ['bbbbbbbbbbbbbbbbbbbbbbbb']);
-  const redirect = new URL(res.body.redirect);
-  assert.equal(redirect.origin, 'http://localhost:15480');
-  assert.equal(redirect.pathname, '/realms/langrace-local/protocol/openid-connect/logout');
-  assert.deepEqual(
-    [...redirect.searchParams],
-    [
-      ['client_id', 'chat-local'],
-      ['post_logout_redirect_uri', 'http://localhost:15483/'],
-    ],
-  );
-  assert.ok(res.cleared.includes('refreshToken'));
+  assert.equal(res.body.redirect, undefined);
+  assert.equal(res.body.code, 'CENTRAL_LOGOUT_BROWSER_MISMATCH');
+  assert.deepEqual(res.cleared, []);
 });
 test('failed revoke does not falsely clear local state or redirect', async () => {
   const { service, value } = fixture({ fetchImpl: async () => ({ status: 503 }) });
@@ -557,6 +553,7 @@ test('real setAuthTokens persists callback binding before signing own JWT, survi
   let created = 0;
   let rotated = 0;
   let signed;
+  const deleted = [];
   const module = load('api/server/services/AuthService.js', {
     './LocalCentralSSO': service,
     '@librechat/api': api,
@@ -572,6 +569,7 @@ test('real setAuthTokens persists callback binding before signing own JWT, survi
     },
     '~/models': {
       getUserById: async () => originalUser,
+      deleteSession: async ({ sessionId }) => deleted.push(sessionId),
       createSession: async (id, options) => {
         created++;
         stored = {
@@ -590,7 +588,21 @@ test('real setAuthTokens persists callback binding before signing own JWT, survi
       generateToken: () => assert.fail('must not generate unbound legacy JWT'),
     },
   });
-  const req = { user: callbackUser, headers: {} };
+  const req = { user: callbackUser, headers: {}, sessionID: 'original-browser' };
+  const saved = [];
+  req.session = {
+    regenerate(done) {
+      req.sessionID = 'new-browser';
+      req.session = {
+        cookie: {},
+        save(done) {
+          saved.push(structuredClone(req.session.centralLogout));
+          done();
+        },
+      };
+      done();
+    },
+  };
   const res = response();
   assert.equal(await module.setAuthTokens(value.chatOwnerId, res, null, req), 'own-chat-jwt');
   assert.equal(stored.centralSession.reference, value.reference);
@@ -599,6 +611,12 @@ test('real setAuthTokens persists callback binding before signing own JWT, survi
   assert.equal(signed.centralSession.memberId, value.memberId);
   assert.equal(req.user.centralSessionReference, value.reference);
   assert.equal(originalUser.memberId, undefined);
+  assert.equal(saved[0].idToken, tokens(value).id_token);
+  assert.equal(saved[0].browserSessionId, 'new-browser');
+  assert.equal(saved[0].localSessionId, stored._id);
+  assert.equal(JSON.stringify(signed).includes(tokens(value).id_token), false);
+  assert.equal(JSON.stringify(req.user).includes(tokens(value).id_token), false);
+  assert.equal(JSON.stringify(res).includes(tokens(value).id_token), false);
   const expiry = stored.expiration.getTime();
   await module.setAuthTokens(value.chatOwnerId, response(), stored, { headers: {} });
   assert.equal(created, 1);
@@ -609,6 +627,26 @@ test('real setAuthTokens persists callback binding before signing own JWT, survi
   await rejects(() =>
     module.setAuthTokens(value.chatOwnerId, response(), null, { user: originalUser }),
   );
+  const failedReq = {
+    user: await service.registerVerified(tokens(value), async () => originalUser),
+    sessionID: 'before-failure',
+  };
+  failedReq.session = {
+    regenerate(done) {
+      failedReq.sessionID = 'failed-browser';
+      failedReq.session = {
+        cookie: {},
+        save(done) {
+          done(new Error('store unavailable'));
+        },
+      };
+      done();
+    },
+  };
+  const failedRes = response();
+  await rejects(() => module.setAuthTokens(value.chatOwnerId, failedRes, null, failedReq));
+  assert.deepEqual(failedRes.cookies, []);
+  assert.deepEqual(deleted, [stored._id]);
 });
 
 test('revoking browser A rejects A JWT/refresh while browser B remains authorized', async () => {

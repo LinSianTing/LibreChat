@@ -73,6 +73,7 @@ const AuthContextProvider = ({
   const isExternalRedirectRef = useRef(false);
   const localize = useLocalize();
   const [logoutPending, setLogoutPending] = useState(() => !!getPendingLogoutToken());
+  const [logoutMismatch, setLogoutMismatch] = useState(false);
   const logoutPendingRef = useRef(logoutPending);
   const [user, setUser] = useRecoilState(store.user);
   const logoutRedirectRef = useRef<string | undefined>(undefined);
@@ -172,12 +173,19 @@ const AuthContextProvider = ({
   });
   const logoutUser = useLogoutUserMutation({
     onSuccess: (data) => {
+      if (data.code === 'CENTRAL_LOGOUT_BROWSER_MISMATCH') {
+        setPendingLogoutToken(undefined);
+        logoutPendingRef.current = true;
+        setLogoutPending(true);
+        setLogoutMismatch(true);
+        return;
+      }
       setPendingLogoutToken(undefined);
       logoutPendingRef.current = false;
       setLogoutPending(false);
       if (data.redirect) {
-        /** data.redirect is the IdP's end_session_endpoint URL: an absolute URL generated
-         * server-side from trusted IdP metadata (not user input), so isSafeRedirect is bypassed.
+        /** data.redirect is the server-owned central recovery page or the legacy IdP
+         * end_session_endpoint (not user input), so isSafeRedirect is bypassed.
          * setUserContext is debounced (50ms) and won't fire before page unload, so clear the
          * axios Authorization header and deletion state synchronously to prevent in-flight requests. */
         isExternalRedirectRef.current = true;
@@ -394,23 +402,28 @@ const AuthContextProvider = ({
     ],
   );
 
+  const logoutStatus = logoutUser.isLoading
+    ? 'com_auth_logout_pending'
+    : 'com_auth_logout_incomplete';
   return (
     <AuthContext.Provider value={memoedValue}>
       {logoutPending ? (
         <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-surface-primary p-6 text-text-primary">
           <p role="alert">
-            {localize(
-              logoutUser.isLoading ? 'com_auth_logout_pending' : 'com_auth_logout_incomplete',
-            )}
+            {localize(logoutMismatch ? 'com_auth_logout_other_browser' : logoutStatus)}
           </p>
-          <button
-            type="button"
-            disabled={logoutUser.isLoading}
-            onClick={() => logout()}
-            className="rounded border border-border-medium px-4 py-2 disabled:opacity-50"
-          >
-            {localize('com_auth_logout_retry')}
-          </button>
+          {logoutMismatch ? (
+            <a href="/login?redirect=false">{localize('com_auth_back_to_login')}</a>
+          ) : (
+            <button
+              type="button"
+              disabled={logoutUser.isLoading}
+              onClick={() => logout()}
+              className="rounded border border-border-medium px-4 py-2 disabled:opacity-50"
+            >
+              {localize('com_auth_logout_retry')}
+            </button>
+          )}
         </main>
       ) : (
         children

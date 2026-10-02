@@ -760,6 +760,20 @@ const setAuthTokens = async (userId, res, _session = null, req = null) => {
         )
       : await generateToken(user, sessionExpiry);
 
+    if (centralAuth?.logoutIdToken) {
+      try {
+        await centralSSO.saveLogoutBinding(
+          req,
+          String(session._id),
+          centralAuth.central,
+          centralAuth.logoutIdToken,
+        );
+      } catch (error) {
+        await deleteSession({ sessionId: session._id });
+        throw error;
+      }
+    }
+
     res.cookie('refreshToken', refreshToken, {
       expires: new Date(refreshTokenExpires),
       httpOnly: true,

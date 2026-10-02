@@ -87,6 +87,7 @@ function TestConsumer() {
       data-error={ctx.error ?? ''}
       data-roles={JSON.stringify(ctx.roles ?? {})}
     >
+      {/* eslint-disable-next-line i18next/no-literal-string -- Test-only action label. */}
       <button onClick={() => ctx.logout()}>logout</button>
     </div>
   );
@@ -731,6 +732,21 @@ describe('central incomplete logout', () => {
   afterEach(() => {
     setPendingLogoutToken(undefined);
     jest.useRealTimers();
+  });
+
+  it('leaves a different browser session untouched and never silently refreshes or redirects it to IdP', () => {
+    setPendingLogoutToken(token);
+    const view = renderProviderLive();
+    const replace = jest.spyOn(window.location, 'replace').mockImplementation(() => {});
+    act(() => {
+      mockCapturedLogoutOptions.onSuccess({ code: 'CENTRAL_LOGOUT_BROWSER_MISMATCH' });
+    });
+    expect(view.getByRole('alert')).toHaveTextContent('com_auth_logout_other_browser');
+    expect(view.getByRole('link')).toHaveAttribute('href', '/login?redirect=false');
+    expect(getPendingLogoutToken()).toBeUndefined();
+    expect(mockRefreshMutate).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('retains retry credential and ignores refresh and token events after revoke fails', () => {

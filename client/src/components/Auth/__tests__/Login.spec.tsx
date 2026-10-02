@@ -29,6 +29,8 @@ const mockStartupConfig = {
     githubLoginEnabled: true,
     googleLoginEnabled: true,
     openidLoginEnabled: true,
+    centralLogoutEnabled: false,
+    openidAutoRedirect: false,
     openidLabel: 'Test OpenID',
     openidImageUrl: 'http://test-server.com',
     samlLoginEnabled: true,
@@ -218,6 +220,19 @@ test('Navigates to / on successful login', async () => {
 });
 
 describe('OAuth rejection redirects', () => {
+  test('central login offers explicit original-session recovery without exposing the IdP hint', async () => {
+    window.history.pushState({}, '', '/login?redirect=false');
+    const view = setup({
+      useGetStartupConfigReturnValue: {
+        ...mockStartupConfig,
+        data: { ...mockStartupConfig.data, centralLogoutEnabled: true, openidAutoRedirect: false },
+      },
+    });
+    const link = await view.findByRole('link', { name: 'End original session / Retry sign-out' });
+    expect(link).toHaveAttribute('href', '/api/auth/central-logout');
+    expect(document.body).toHaveTextContent('The old session will not be extended.');
+    expect(document.body.innerHTML).not.toContain('id_token_hint');
+  });
   const enterAt = (search: string) => {
     window.history.pushState({}, '', `/login${search}`);
   };

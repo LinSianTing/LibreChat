@@ -1,7 +1,7 @@
 const ISSUER = 'http://localhost:15480/realms/langrace-local';
 const API_URL = 'http://localhost:15481';
 const CLIENT_ID = 'chat-local';
-const LOGOUT_REDIRECT = 'http://localhost:15483/';
+const { createCentralLogout } = require('./CentralLogout');
 const UUID =
   /^(?!00000000-0000-0000-0000-000000000000$)[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const OWNER = /^[0-9a-f]{24}$/;
@@ -19,6 +19,7 @@ const identifier = (value) =>
   value.length > 0 &&
   value.length <= 255 &&
   value.trim() === value &&
+  // eslint-disable-next-line no-control-regex -- Identity fields must reject ASCII control characters.
   !/[\x00-\x1f\x7f]/.test(value);
 
 function denied(status = 401) {
@@ -170,16 +171,16 @@ function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(..
       central,
     );
     const authenticated = attach(user, central);
-    callbackGrants.set(authenticated, central);
+    callbackGrants.set(authenticated, { central, logoutIdToken: tokenset.id_token });
     return authenticated;
   };
   const prepareTokens = async (userId, session, req, getUserById) => {
     assertConfig();
-    const grant = session ? session.centralSession : callbackGrants.get(req?.user);
+    const grant = session ? { central: session.centralSession } : callbackGrants.get(req?.user);
     if (!session && req?.user) {
       callbackGrants.delete(req.user);
     }
-    const central = await validate(grant);
+    const central = await validate(grant?.central);
     if (
       String(userId) !== central.chatOwnerId ||
       (session && String(session.user) !== central.chatOwnerId)
@@ -194,7 +195,7 @@ function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(..
       central,
     );
     req.user = attach(user, central);
-    return { central, user: req.user };
+    return { central, user: req.user, logoutIdToken: grant.logoutIdToken };
   };
   const authorize = async (payload, user, findSession) => {
     assertConfig();
@@ -210,67 +211,13 @@ function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(..
     const central = await validate(session.centralSession);
     return attach(owner(user, central), central);
   };
-  const logout = async (req, res, { verifyToken, deleteSession, clearCloudFrontCookies }) => {
-    assertConfig();
-    if (req.method !== 'POST' || req.baseUrl !== '/api/auth' || req.path !== '/logout') {
-      throw denied();
-    }
-    const authorization = req.headers?.authorization;
-    const bearer =
-      typeof authorization === 'string'
-        ? /^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/i.exec(authorization)
-        : null;
-    if (!bearer) {
-      throw denied();
-    }
-    let payload;
-    try {
-      payload = verifyToken(bearer[1], env.JWT_SECRET, {
-        algorithms: ['HS256'],
-        ignoreExpiration: true,
-      });
-    } catch {
-      throw denied();
-    }
-    const central = binding(payload?.centralSession, { allowExpired: true });
-    if (
-      payload.id !== central.chatOwnerId ||
-      typeof payload.sessionId !== 'string' ||
-      !OWNER.test(payload.sessionId) ||
-      !Number.isFinite(payload.exp)
-    ) {
-      throw denied();
-    }
-    try {
-      await request('revoke', { reference: central.reference });
-    } catch {
-      throw denied(503);
-    }
-    await deleteSession({ sessionId: payload.sessionId });
-    if (req.session) {
-      await new Promise((resolve, reject) =>
-        req.session.destroy((error) => (error ? reject(denied(503)) : resolve())),
-      );
-    }
-    for (const name of [
-      'refreshToken',
-      'token_provider',
-      'openid_access_token',
-      'openid_id_token',
-      'openid_user_id',
-      'connect.sid',
-    ]) {
-      res.clearCookie(name);
-    }
-    clearCloudFrontCookies(res, { userId: central.chatOwnerId });
-    const endSession = new URL(`${ISSUER}/protocol/openid-connect/logout`);
-    endSession.searchParams.set('client_id', CLIENT_ID);
-    endSession.searchParams.set('post_logout_redirect_uri', LOGOUT_REDIRECT);
-    return res.status(200).send({
-      message: 'Chat session revoked; identity-provider logout pending',
-      redirect: endSession.toString(),
-    });
-  };
+  const logoutFlow = createCentralLogout({
+    assertConfig,
+    binding,
+    match,
+    revoke: (reference) => request('revoke', { reference }),
+    env,
+  });
   const authenticateRefresh = async (token, { verifyToken, findSession, getUserById }) => {
     assertConfig();
     const payload = verifyToken(token, env.JWT_REFRESH_SECRET, { algorithms: ['HS256'] });
@@ -332,7 +279,7 @@ function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(..
     registerVerified,
     prepareTokens,
     authorize,
-    logout,
+    ...logoutFlow,
     authenticateRefresh,
     guardRoutes,
   };

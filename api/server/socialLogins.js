@@ -59,6 +59,7 @@ async function configureOpenId(app, appConfig) {
     cookie: {
       maxAge: sessionExpiry,
       secure: shouldUseSecureCookie(),
+      ...(centralSSO.enabled() ? { httpOnly: true, sameSite: 'lax' } : {}),
     },
   };
   app.use(session(sessionOptions));

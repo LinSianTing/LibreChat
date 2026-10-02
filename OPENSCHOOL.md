@@ -1,5 +1,110 @@
 # OpenSchool fork of LibreChat
 
+## 2026-10-02 original-session logout and expiry recovery (unreleased)
+
+Assigned sole Chat writer, base `4ecb2e6155580d3efc5f8a155f4e1ba327cbf72e`.
+This section supersedes the older logout/browser-cookie behavior below. No Web change,
+new Web API, runtime restart, browser operation, Docker, paid call, push or PR.
+The gateway integration heading's accidental 2026-10-03 date is corrected to 2026-10-02.
+
+The verified callback's original ID token travels in a private WeakMap grant into
+`CentralLogout.saveLogoutBinding`, after a Mongo Chat session has been created.
+The callback regenerates the Express session and awaits saving a server-only record
+before issuing auth cookies/redirect. Store failure rolls back the new Mongo session.
+The original token is never attached to the user, central binding, Chat JWT/refresh,
+browser storage, API JSON, or a rendered recovery page. Only the final server-generated
+303 to the fixed Keycloak end-session endpoint transmits it as `id_token_hint` through
+the required OIDC front channel. There is no email/logout_hint or hintless fallback.
+
+The Express logout record contains the original local-session ID, complete central
+binding, browser-session ID, generation, and random form state. Its fixed 24-hour
+recovery retention is independent of the original central expiry. **No change to
+register/validate, central expiry, JWT/refresh authorization, or Mongo auth lifetime.**
+Expired credentials are accepted only for the existing revocation-only logout or
+as corroboration of the current recovery browser. The recovery record itself grants
+no Chat access. Old runtime sessions without a stored hint and lost/expired recovery
+records fail explicitly; they are not reconstructed from browser-supplied ID tokens.
+
+`POST /api/auth/logout` retains the existing exact-route, same-origin, HS256 Bearer
+verification (expiry allowed only for revocation). It always targets signed A.
+It reloads the current Express record and, when present, verifies the signed refresh
+cookie offline and compares the complete binding and local-session ID. A Bearer plus
+B cookie (including the same owner with a different sid) revokes/deletes A only,
+returns `CENTRAL_LOGOUT_BROWSER_MISMATCH`, and neither destroys B nor clears cookies
+nor supplies an IdP redirect. The UI explains this result without automatic refresh
+or IdP navigation. A matching browser is redirected only to the local recovery page.
+
+Manual recovery is available on the login page and on the explicit central callback
+failure page, including the existing-sid/expired-register case. Central mode disables
+automatic OpenID redirects. Recovery never silently re-registers or extends the old
+reference; a new login remains an explicit action after ending the original IdP session.
+
+- `GET /api/auth/central-logout`: no side effects; shows the manual confirmation/retry
+  form without an ID token. It works after access/refresh expiry and Mongo TTL cleanup,
+  as long as the retained Express browser record is available.
+- `POST /api/auth/central-logout/continue`: same-origin plus server-stored random form
+  state; rechecks the current browser, saves a ten-minute pending callback state,
+  idempotently revokes the original Web reference and deletes only its Mongo session,
+  saves the issued state, then returns the original-hint Keycloak redirect.
+- `GET /api/auth/central-logout/callback`: requires issued, unexpired state matching
+  the current browser's server record. Only the original Express session is destroyed.
+  Error/cancel retains retry. Completed state cannot be replayed. A callback arriving
+  after login B cannot destroy B. Responses deliberately send no auth-cookie deletion
+  or replacement: Express response-time saving/touching is disabled before sending,
+  preventing a late A response from overwriting B's cookies. Stale A cookies grant no
+  access after the server-side session/reference is revoked.
+
+Web revoke failure and interrupted IdP navigation preserve the record and retry;
+return to the recovery page and explicitly retry. No successful-IdP claim is made merely
+because Web revoke returned 204 or Chat returned 200. Pages report incomplete state,
+or a matching IdP return, and do not automatically log back in. Pages/redirects use
+no-store, no-referrer and restrictive CSP. No token/full IdP URL is logged by these hooks.
+Same-browser continuation/callback operations are serialized in this **single local
+Chat process** and reload the server record; no distributed/multi-worker guarantee is
+claimed. Recovery is bounded by the existing server-side store's availability and TTL.
+
+TL integration handoff: the `chat-local` Keycloak client's allowed post-logout return
+must include exactly `http://localhost:15483/api/auth/central-logout/callback`.
+This batch does not modify Keycloak/runtime configuration. Load the new Chat code and
+frontend through the normal TL runtime workflow, then sign in once to create the new
+server-only recovery record before testing expiry/recovery. Existing running binary
+sessions cannot retroactively acquire the original hint. No new Web endpoint is needed.
+
+Directed evidence on the base plus this commit's patch, using existing dependencies:
+
+- Native Node suites: local-central-identity, local-central-sso, local-central-logout,
+  local-central-access and local-central-continuation: **74 tests** across the checked
+  suites pass (the first four 65; continuation 9). The continuation suite uses real
+  Express, express-session cookies/MemoryStore, jsonwebtoken, production routes and
+  origin middleware, with Web/Mongo boundaries substituted. It covers A/B cookies,
+  expired recovery, TTL-missing auth sessions, revoke outage, IdP error/interruption,
+  forged/cross-browser/expired/replayed states, concurrent callback, new B login,
+  missing hints, and actual callback failure routing. Callback issuance also verifies
+  hint non-disclosure and save-failure rollback before auth cookies.
+- API Jest: LogoutController, auth/oauth, auth.cross-site, oauth.state and config:
+  **129/129 pass**; AuthService and routes/oauth: **71/71 pass** (200 API tests total).
+  Client Jest: AuthContext and Login: **38/38 pass**.
+- `npm run build:data-provider` and client `tsc --noEmit` pass; changed-file ESLint,
+  formatting, JS syntax and `git diff --check` pass. Two preexisting lint exceptions
+  are documented inline (intentional control-character rejection and a test-only label).
+  No dependency or lockfile change.
+- No real Mongo/Keycloak/Google, full production client bundle or full upstream suite
+  run in this batch. The user-reported Web `a8019d9` expiry/recovery receipt and a new
+  Web sid entering the **old running Chat binary** are separate evidence, not acceptance
+  of this new Chat logout flow. TL owns real dual-service verification and PM acceptance.
+
+Changed paths for this package:
+
+- `api/server/services/CentralLogout.js`, `LocalCentralSSO.js`, `AuthService.js`
+- `api/server/controllers/auth/oauth.js`; `api/server/routes/auth.js`, `oauth.js`,
+  `config.js`; `api/server/socialLogins.js`
+- `client/src/components/Auth/Login.tsx`, `__tests__/Login.spec.tsx`;
+  `client/src/hooks/AuthContext.tsx`, `__tests__/AuthContext.spec.tsx`
+- `client/src/locales/en/translation.json`, `client/src/locales/zh-Hant/translation.json`
+- `packages/data-provider/src/config.ts`, `packages/data-provider/src/types/mutations.ts`
+- `openschool/local-central-continuation.test.cjs`, `local-central-sso.test.cjs`,
+  `local-central-logout.test.cjs`, `local-central-access.test.cjs`; `OPENSCHOOL.md`
+
 ## Local central SSO wiring (2026-10-02)
 
 Assigned Chat worker, original source `97a9169f52675395dbb650d3cf5ca6ed0eed9735`;
@@ -273,7 +378,7 @@ merge retains 7628b9e as an actual ancestor and its socialLogin source/test blob
   lockfile uses for `xlsx`).
 - The upstream `Dockerfile` is unchanged.
 
-## 2026-10-03 local P0 central gateway integration (unreleased)
+## 2026-10-02 local P0 central gateway integration (unreleased)
 
 On base 93e6d0f, authenticated model discovery now uses the current central
 member/session pair without a global model cache or default-model fallback.

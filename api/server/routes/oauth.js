@@ -1,6 +1,7 @@
 // file deepcode ignore NoRateLimitingForLogin: Rate limiting is handled by the `loginLimiter` middleware
 const express = require('express');
 const passport = require('passport');
+const centralSSO = require('~/server/services/LocalCentralSSO');
 const { randomState } = require('openid-client');
 const { logger } = require('@librechat/data-schemas');
 const { ErrorTypes } = require('librechat-data-provider');
@@ -127,7 +128,14 @@ router.get('/openid', (req, res, next) => {
 
 router.get(
   '/openid/callback',
-  authenticateOpenIDCallback,
+  (req, res, next) => {
+    if (!centralSSO.enabled()) return authenticateOpenIDCallback(req, res, next);
+    return passport.authenticate('openid', { session: false }, (error, user) => {
+      if (error || !user) return centralSSO.centralLoginFailure(req, res);
+      req.user = user;
+      return next();
+    })(req, res, next);
+  },
   setBalanceConfig,
   checkDomainAllowed,
   oauthHandler,

@@ -103,6 +103,7 @@ function createOAuthHandler(redirectUri = domains.client) {
       }
       res.redirect(redirectUri);
     } catch (err) {
+      if (centralSSO.enabled()) return centralSSO.centralLoginFailure(req, res);
       logger.error('Error in setting authentication tokens:', err);
       next(err);
     }

@@ -198,12 +198,9 @@ test('expired JWT and binding revoke even after Mongo TTL cleanup; repeated logo
     const result = await f.request(token);
     assert.equal(result.status, 200);
     const body = await result.json();
-    assert.match(body.message, /logout pending/);
-    const redirect = new URL(body.redirect);
-    assert.equal(redirect.origin, 'http://localhost:15480');
-    assert.equal(redirect.searchParams.get('client_id'), 'chat-local');
-    assert.equal(redirect.searchParams.get('post_logout_redirect_uri'), 'http://localhost:15483/');
-    assert.ok(result.headers.getSetCookie().some((value) => value.startsWith('refreshToken=;')));
+    assert.equal(body.code, 'CENTRAL_LOGOUT_BROWSER_MISMATCH');
+    assert.equal(body.redirect, undefined);
+    assert.deepEqual(result.headers.getSetCookie(), []);
   }
   assert.equal(f.calls.length, 2);
   assert.ok(
@@ -213,7 +210,7 @@ test('expired JWT and binding revoke even after Mongo TTL cleanup; repeated logo
   );
   assert.deepEqual(f.deletes, [sessionA, sessionA]);
   assert.deepEqual([...f.sessions], [sessionB]);
-  assert.deepEqual([...f.browserSessions], ['B']);
+  assert.deepEqual([...f.browserSessions], ['A', 'B']);
 });
 
 test('live-check/IdP outage is never consulted for a valid logout-only signature', async (t) => {
@@ -239,7 +236,7 @@ for (const failure of [503, 401, 'network']) {
     f.setRevokeStatus(204);
     assert.equal((await f.request(token)).status, 200);
     assert.deepEqual([...f.sessions], [sessionB]);
-    assert.deepEqual([...f.browserSessions], ['B']);
+    assert.deepEqual([...f.browserSessions], ['A', 'B']);
   });
 }
 
