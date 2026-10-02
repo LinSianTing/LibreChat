@@ -1,5 +1,8 @@
 const express = require('express');
 const request = require('supertest');
+jest.mock('~/server/services/LocalCentralSSO', () => ({
+  enabled: () => process.env.OPENSCHOOL_CENTRAL_SSO === 'true',
+}));
 
 jest.mock('~/server/middleware', () => ({
   requireJwtAuth: (req, res, next) => (req.user ? next() : res.sendStatus(401)),
@@ -59,6 +62,20 @@ afterEach(() => {
 test('anonymous is rejected before consume', async () => {
   expect((await post(null).send({ id })).status).toBe(401);
   expect(mockFetch).not.toHaveBeenCalled();
+});
+test('central handoff derives both identifiers only from authenticated user', async () => {
+  process.env.OPENSCHOOL_CENTRAL_SSO = 'true';
+  const user = {
+    memberId: '11111111-1111-7111-8111-111111111111',
+    centralSessionReference: '22222222-2222-7222-8222-222222222222',
+  };
+  const result = await post(user).set('X-OpenSchool-Member-Id', 'forged').send({ id });
+  expect(result.status).toBe(200);
+  const headers = mockFetch.mock.calls[0][1].headers;
+  expect(headers['X-OpenSchool-Member-Id']).toBe(user.memberId);
+  expect(headers['X-OpenSchool-Central-Session']).toBe(user.centralSessionReference);
+  expect(headers['X-OpenSchool-Google-Sub']).toBeUndefined();
+  expect((await post({ googleId: 'legacy-only' }).send({ id })).status).toBe(403);
 });
 test.each([{}, { googleId: '' }, { googleId: 'bad\r\nsubject' }])(
   'missing/unsafe Google identity is refused',

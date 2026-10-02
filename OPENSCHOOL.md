@@ -272,3 +272,20 @@ merge retains 7628b9e as an actual ancestor and its socialLogin source/test blob
   so it only needs Docker Hub and the npm registry (plus `cdn.sheetjs.com`, which the upstream
   lockfile uses for `xlsx`).
 - The upstream `Dockerfile` is unchanged.
+
+## 2026-10-03 local P0 central gateway integration (unreleased)
+
+On base 93e6d0f, authenticated model discovery now uses the current central
+member/session pair without a global model cache or default-model fallback.
+Prompt handoff and custom endpoint headers use the same server-validated pair;
+legacy Google headers apply only outside local central mode. Local runtime
+configuration is ignored, and no paid provider credentials were added.
+
+Directed evidence: 43 API tests passed for CentralGateway, ModelController and
+OpenSchool handoff; 142 env utility tests passed. Data schemas/API builds and
+frontend production build passed (existing Tailwind/eval/chunk warnings remain).
+These are directed checks, not full P0 acceptance. Actual synthetic Keycloak
+login reached the Chat UI; expired-session access returned to login. Re-entry
+under the same expired central sid currently fails closed and remains unresolved.
+Original-session IdP logout, cross-tab A-token/B-cookie handling, real Google,
+full dual-service runtime, and deployment are not complete. No paid call made.

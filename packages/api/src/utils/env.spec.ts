@@ -440,6 +440,8 @@ describe('resolveHeaders', () => {
       'X-User-Provider': '{{LIBRECHAT_USER_PROVIDER}}',
       'X-User-Role': '{{LIBRECHAT_USER_ROLE}}',
       'X-User-GoogleId': '{{LIBRECHAT_USER_GOOGLEID}}',
+      'X-OpenSchool-Member-Id': '{{LIBRECHAT_USER_MEMBERID}}',
+      'X-OpenSchool-Central-Session': '{{LIBRECHAT_USER_CENTRALSESSIONREFERENCE}}',
       'X-User-FacebookId': '{{LIBRECHAT_USER_FACEBOOKID}}',
       'X-User-OpenIdId': '{{LIBRECHAT_USER_OPENIDID}}',
       'X-User-SamlId': '{{LIBRECHAT_USER_SAMLID}}',
@@ -452,7 +454,10 @@ describe('resolveHeaders', () => {
       'X-User-TermsAccepted': '{{LIBRECHAT_USER_TERMSACCEPTED}}',
     };
 
+    Object.assign(user, { memberId: 'central-member', centralSessionReference: 'central-session' });
     const result = resolveHeaders({ headers, user });
+    expect(result['X-OpenSchool-Member-Id']).toBe('central-member');
+    expect(result['X-OpenSchool-Central-Session']).toBe('central-session');
 
     expect(result['X-User-ID']).toBe('abc');
     expect(result['X-User-Name']).toBe('Test User');
