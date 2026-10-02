@@ -1,5 +1,6 @@
 const cookies = require('cookie');
 const passport = require('passport');
+const centralSSO = require('~/server/services/LocalCentralSSO');
 const { isEnabled, tenantContextMiddleware } = require('@librechat/api');
 
 const hasPassportStrategy = (strategy) =>
@@ -12,6 +13,7 @@ const optionalJwtAuth = (req, res, next) => {
   const cookieHeader = req.headers.cookie;
   const tokenProvider = cookieHeader ? cookies.parse(cookieHeader).token_provider : null;
   const useOpenIdJwt =
+    !centralSSO.enabled() &&
     tokenProvider === 'openid' &&
     isEnabled(process.env.OPENID_REUSE_TOKENS) &&
     hasPassportStrategy('openidJwt');

@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const centralSSO = require('./LocalCentralSSO');
 const { webcrypto } = require('node:crypto');
 const {
   logger,
@@ -372,6 +373,9 @@ const verifyEmail = async (req) => {
  * @returns {Promise<{status: number, message: string, user?: IUser}>}
  */
 const registerUser = async (user, additionalData = {}) => {
+  if (centralSSO.enabled()) {
+    throw new Error('Central OpenID login required');
+  }
   const result = registerSchema.safeParse(user);
   if (!result.success) {
     const errorMessage = errorsToString(result.error.errors);
@@ -699,6 +703,9 @@ const setCloudFrontAuthCookies = (req, res, user, options = {}) => {
  */
 const setAuthTokens = async (userId, res, _session = null, req = null) => {
   try {
+    const centralAuth = centralSSO.enabled()
+      ? await centralSSO.prepareTokens(userId, _session, req, getUserById)
+      : null;
     let session = _session;
     let refreshToken;
     let refreshTokenExpires;
@@ -708,15 +715,50 @@ const setAuthTokens = async (userId, res, _session = null, req = null) => {
       refreshTokenExpires = session.expiration.getTime();
       refreshToken = await generateRefreshToken(session);
     } else {
-      const result = await createSession(userId, { expiresIn });
+      const result = await createSession(userId, {
+        expiresIn,
+        ...(centralAuth
+          ? {
+              centralSession: centralAuth.central,
+              expiration: new Date(
+                Math.min(Date.now() + expiresIn, Date.parse(centralAuth.central.expiresAtUtc)),
+              ),
+            }
+          : {}),
+      });
       session = result.session;
       refreshToken = result.refreshToken;
       refreshTokenExpires = session.expiration.getTime();
     }
 
-    const user = await getUserById(userId);
+    const user = centralAuth?.user ?? (await getUserById(userId));
     const sessionExpiry = math(process.env.SESSION_EXPIRY, DEFAULT_SESSION_EXPIRY);
-    const token = await generateToken(user, sessionExpiry);
+    const token = centralAuth
+      ? jwt.sign(
+          {
+            id: String(user._id),
+            username: user.username,
+            provider: user.provider,
+            email: user.email,
+            sessionId: String(session._id),
+            centralSession: centralAuth.central,
+          },
+          process.env.JWT_SECRET,
+          {
+            algorithm: 'HS256',
+            expiresIn: Math.max(
+              1,
+              Math.floor(
+                Math.min(
+                  sessionExpiry,
+                  session.expiration.getTime() - Date.now(),
+                  Date.parse(centralAuth.central.expiresAtUtc) - Date.now(),
+                ) / 1000,
+              ),
+            ),
+          },
+        )
+      : await generateToken(user, sessionExpiry);
 
     res.cookie('refreshToken', refreshToken, {
       expires: new Date(refreshTokenExpires),

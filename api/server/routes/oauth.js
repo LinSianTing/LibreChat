@@ -28,6 +28,7 @@ const setBalanceConfig = createSetBalanceConfig({
 });
 
 const router = express.Router();
+router.use(require('~/server/services/LocalCentralSSO').guardRoutes('oauth'));
 
 const domains = {
   client: process.env.DOMAIN_CLIENT,

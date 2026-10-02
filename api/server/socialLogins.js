@@ -1,4 +1,5 @@
 const passport = require('passport');
+const centralSSO = require('~/server/services/LocalCentralSSO');
 const session = require('express-session');
 const { CacheKeys } = require('librechat-data-provider');
 const {
@@ -81,6 +82,10 @@ async function configureOpenId(app, appConfig) {
  * @param {AppConfig} [appConfig] - Base app config, read for the social login state lifetime.
  */
 const configureSocialLogins = async (app, appConfig) => {
+  if (centralSSO.enabled()) {
+    centralSSO.assertConfig();
+    return configureOpenId(app, appConfig);
+  }
   logger.info('Configuring social logins...');
   const stateOptions = {
     secret: process.env.JWT_SECRET,

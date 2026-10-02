@@ -1,26 +1,72 @@
 # OpenSchool fork of LibreChat
 
-## Local central identity work in progress (2026-10-02)
+## Local central SSO wiring (2026-10-02)
 
-OpenSchool SPEC25 owns this isolated experiment. Base `6ba75be8c`; sole writer TL,
-branch `codex/local-central-sso`. No deployment or paid calls.
+Assigned Chat worker, source `97a9169f52675395dbb650d3cf5ca6ed0eed9735`, branch
+`codex/local-central-sso`. This package wires the existing Passport callback, Chat-owned
+JWT/refresh tokens, Mongo sessions and logout. It is engineering evidence, not P0 or
+product acceptance. No deployment, Docker, paid calls, push or gateway changes.
 
-`api/strategies/localCentralIdentity.js` defines explicit issuer/subject to existing
-Google owner mapping. It accepts only Development configuration and the fixed local
-Keycloak issuer. It re-reads the exact Mongo owner, checks the original Google ID and
-account activity, and returns separate session metadata without mutating provider,
-email, roles or ownership. No email fallback or registration dependency is supplied.
+Enable only with `OPENSCHOOL_CENTRAL_SSO=true`, `NODE_ENV=development`,
+`OPENID_ISSUER=http://localhost:15480/realms/langrace-local`, `OPENID_CLIENT_ID=chat-local`,
+`OPENSCHOOL_CENTRAL_API_URL=http://localhost:15481` and a server-only
+`OPENSCHOOL_CENTRAL_API_KEY`. `OPENID_REUSE_TOKENS=true` is explicitly rejected.
+Normal Chat JWT/refresh/session secrets, `DOMAIN_SERVER`/`DOMAIN_CLIENT` and
+`OPENID_CALLBACK_URL=/oauth/openid/callback` must still be configured for local Chat.
+The local issuer is explicitly allowed HTTP. State and nonce are generated on every
+authorization request; the pinned [openid-client 6.5.0 Passport strategy](https://github.com/panva/openid-client/blob/v6.5.0/src/passport.ts)
+owns S256 PKCE, stored state/nonce and authorization-code validation before our callback.
 
-This resolver is **not yet wired into Passport, refresh, JWT or logout**. It is not an
-authentication verifier and accepts only claims already validated by the OIDC library;
-callers still need live session validation. Existing runtime behavior is unchanged.
-The local loopback/database/startup gates, callback integration, signed session
-revocation, two-browser isolation and Google broker remain unfinished.
+`api/server/services/LocalCentralSSO.js` implements the fixed Web contract:
 
-Dependency-free contract verification:
-`node --test openschool/local-central-identity.test.cjs` (16 passing tests).
-This does not validate Mongo persistence, token cryptography, HTTP login, refresh,
-browser logout or existing chat/attachment access. No upstream build is claimed.
+- Server-only JSON POSTs to `/internal/central-sso/register` with `{idToken}`,
+  `/validate` with `{reference}`, and `/revoke` with `{reference}`, authenticated by
+  `X-OpenSchool-Central-Key`. A 2500 ms total deadline includes body parsing; no retry,
+  redirect, decision cache or credential/body logging. Field/path/header differences
+  from the assigned Web contract: **none**.
+- Web selects the preapproved mapping. Chat accepts only the exact existing, ordinary
+  `USER` Mongo owner, with no tenant scope, temporary expiry or deletion in progress.
+  No email lookup, account creation, first-admin assignment, Google legacy condition,
+  provider rewrite or role synchronization. The old `localCentralIdentity.js` remains
+  an unused historical helper; it is not the runtime identity policy.
+- Callback-only grants survive the user reload in `setAuthTokens` by becoming an
+  explicit Mongo `Session.centralSession` binding. Both signed Chat access and refresh
+  tokens contain the binding; access tokens additionally identify the local session.
+  Every accepted JWT checks the local session and live Web reference. Refresh checks
+  signed versus stored binding and validates the same reference, never registers or
+  extends the original expiry. Missing bindings, owner/member/subject/sid changes,
+  expired/revoked sessions and Web errors deny.
+- Trusted request fields are `req.user.memberId` and
+  `req.user.centralSessionReference` (`reference` is an alias); `centralSession` contains
+  the full validated binding. No browser header/body supplies these fields. Gateway
+  headers and Web consumers remain the main TL's package.
+- Local/password registration, other OAuth providers, admin auth and token-reuse
+  middleware paths are blocked only in central mode. Feature off retains prior behavior.
+- Logout revokes the authenticated reference first, deletes only its local session,
+  destroys the current browser's server session and clears auth cookies. It returns a
+  Keycloak end-session URL with `client_id=chat-local` and exact
+  `post_logout_redirect_uri=http://localhost:15483/`. The response explicitly describes
+  IdP logout as pending; it does not claim Google/federated logout. The other browser's
+  reference and local session are retained. The existing JWT guard remains fail-closed:
+  if `/validate` is unavailable before logout, Chat does not enter `/revoke`; Web's
+  outage-tolerant revoke capability does not bypass Chat authentication.
+
+Verification and remaining integration checks:
+
+```sh
+node --test openschool/local-central-identity.test.cjs openschool/local-central-sso.test.cjs
+```
+
+Result: **52/52 passing** (36 central-session tests and 16 historical helper tests).
+The dependency-free suite exercises real CJS hook bodies with explicit HTTP/model/library
+substitutes, including callback, token issuance after reload, JWT, refresh, route gates,
+deadline and two-browser revocation isolation. It does **not** exercise real Mongo,
+JWT cryptography, live Web/Keycloak/Google, browser redirects or existing chat/attachments.
+Changed JS syntax, formatting and `git diff --check` are checked separately. Full
+data-schemas `tsc --noEmit` was attempted but cannot pass without the absent workspace
+dependencies/types (including mongoose, librechat-data-provider, Jest and Node types).
+No upstream build, Lighthouse or full integration pass is claimed. Main TL owns review,
+dependency builds (including data-schemas), all-chain verification and product acceptance.
 
 This fork carries the small changes that the OpenSchool platform (開放學校平台) needs on top of
 LibreChat. LibreChat is MIT licensed; upstream is <https://github.com/danny-avila/LibreChat>.

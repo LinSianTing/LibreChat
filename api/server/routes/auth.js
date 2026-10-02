@@ -28,6 +28,7 @@ const setBalanceConfig = createSetBalanceConfig({
 });
 
 const router = express.Router();
+router.use(require('~/server/services/LocalCentralSSO').guardRoutes('auth'));
 const getCloudFrontAuthCookieRefreshResult = (req, res) => {
   const warmedResult = req.cloudFrontAuthCookieRefreshResult;
   if (warmedResult && (warmedResult.attempted || !warmedResult.enabled)) {

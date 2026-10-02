@@ -2,7 +2,8 @@ const { AGENT_TRIGGER_SCOPE } = require('@librechat/api');
 const { logger, runAsSystem } = require('@librechat/data-schemas');
 const { SystemRoles } = require('librechat-data-provider');
 const { Strategy: JwtStrategy, ExtractJwt } = require('passport-jwt');
-const { getUserById, updateUser } = require('~/models');
+const { getUserById, updateUser, findSession } = require('~/models');
+const centralSSO = require('~/server/services/LocalCentralSSO');
 
 const AGENT_TRIGGER_ADMISSION_PATHS = ['/api/agents/chat/agents', '/api/agents/chat/steer/deliver'];
 
@@ -31,7 +32,9 @@ const jwtLogin = () =>
     async (req, payload, done) => {
       try {
         if (payload?.scope === AGENT_TRIGGER_SCOPE && !isAgentTriggerAdmissionRequest(req)) {
-          done(null, false, { message: 'Agent trigger token is not valid for this endpoint' });
+          done(null, false, {
+            message: 'Agent trigger token is not valid for this endpoint',
+          });
           return;
         }
         const user = await runAsSystem(() =>
@@ -48,6 +51,13 @@ const jwtLogin = () =>
           return;
         }
         if (user) {
+          if (centralSSO.enabled()) {
+            const authenticated = await runAsSystem(() =>
+              centralSSO.authorize(payload, user, findSession),
+            );
+            req.centralSessionId = payload.sessionId;
+            return done(null, authenticated);
+          }
           user.id = user._id.toString();
           /** Absent on the full doc means local user; null skips getUserPrincipals' fallback lookup */
           user.idOnTheSource ??= null;
@@ -61,6 +71,9 @@ const jwtLogin = () =>
           done(null, false);
         }
       } catch (err) {
+        if (centralSSO.enabled()) {
+          return done(null, false, { message: 'Central session is not authorized' });
+        }
         done(err, false);
       }
     },
