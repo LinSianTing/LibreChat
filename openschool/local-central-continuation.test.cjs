@@ -210,6 +210,10 @@ async function fixture(t) {
     const response = await request(root, { cookie });
     assert.equal(response.status, 200);
     assert.deepEqual(response.headers.getSetCookie(), []);
+    assert.equal(
+      response.headers.get('content-security-policy'),
+      "default-src 'none'; form-action 'self' http://localhost:15480/realms/langrace-local/protocol/openid-connect/logout; frame-ancestors 'none'; base-uri 'none'",
+    );
     const text = await response.text();
     assert.ok(!text.includes('original-id-token'));
     return /name="state" value="([a-f0-9]{64})"/.exec(text)[1];

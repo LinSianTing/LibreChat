@@ -100,7 +100,7 @@ function createCentralLogout({ assertConfig, binding, match, revoke, env }) {
       'Cache-Control': 'no-store',
       'Referrer-Policy': 'no-referrer',
       'Content-Security-Policy':
-        "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+        `default-src 'none'; form-action 'self' ${ISSUER}/protocol/openid-connect/logout; frame-ancestors 'none'; base-uri 'none'`,
       'X-Content-Type-Options': 'nosniff',
     });
   const page = (res, status, message, state) => {

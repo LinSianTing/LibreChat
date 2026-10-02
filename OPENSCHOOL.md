@@ -394,3 +394,11 @@ login reached the Chat UI; expired-session access returned to login. Re-entry
 under the same expired central sid currently fails closed and remains unresolved.
 Original-session IdP logout, cross-tab A-token/B-cookie handling, real Google,
 full dual-service runtime, and deployment are not complete. No paid call made.
+
+### 2026-10-02 TL browser follow-up: fixed IdP form redirect
+
+Against 88ca0ef47, real local browser submission remained on the recovery form. The form CSP allowed only self, which prevented its 303 continuation to the fixed local Keycloak logout endpoint. Add exactly that endpoint to form-action; default-src, frame-ancestors and base-uri remain none. No configurable/open redirect or hintless logout was introduced.
+
+After restarting this isolated Chat, the in-memory recovery record was lost; TL reset only the synthetic teacher-a IdP fixture to start a new test. That administrative reset is NOT product logout evidence. A fresh Chat login followed by Web login then Chat menu logout → explicit recovery POST → Keycloak → matching callback succeeded. Web /me subsequently required login, and the next Chat OIDC challenge displayed the Keycloak credential form. Screenshot is ignored local evidence chat-logout-callback.png in the Web worktree.
+
+Nine continuation HTTP tests passed with an exact CSP assertion. Earlier child test/build receipts remain their fixed-source evidence. This does not establish other-browser survival, expired Chat recovery, restart durability, real Google, or full A4 completion. In-memory recovery across a Chat restart remains a limitation to address before deployment.
