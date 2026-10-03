@@ -11,6 +11,7 @@ const mockFetchConversation = jest.fn();
 const mockHasSetConversation = { current: true };
 let mockConversation: Partial<TConversation> = { conversationId: 'chat-a' };
 const mockConfig = {};
+let mockModelsConfig: Record<string, unknown> = mockConfig;
 const mockRoles = { USER: {} };
 let mockAssistantListMap = {};
 const mockNewConversation = jest.fn(({ template }: { template?: Partial<TConversation> }) => {
@@ -37,7 +38,7 @@ jest.mock('../useAuthRedirect', () => ({
   default: () => ({ isAuthenticated: true, roles: mockRoles }),
 }));
 jest.mock('librechat-data-provider/react-query', () => ({
-  useGetModelsQuery: () => ({ data: mockConfig }),
+  useGetModelsQuery: () => ({ data: mockModelsConfig }),
 }));
 jest.mock('~/data-provider', () => ({
   useGetStartupConfig: () => ({ data: mockConfig }),
@@ -106,10 +107,28 @@ function setup(initialEntries = ['/c/chat-a'], initialIndex = initialEntries.len
 }
 
 beforeEach(() => {
+  mockModelsConfig = mockConfig;
   mockConversation = { conversationId: 'chat-a' };
   mockHasSetConversation.current = true;
   mockAssistantListMap = {};
   mockFetchConversation.mockImplementation(async (id: string) => ({ conversationId: id }));
+});
+
+it('initial model placeholder leaves a new route blank until eligible models arrive', async () => {
+  mockConversation = undefined as unknown as Partial<TConversation>;
+  mockHasSetConversation.current = false;
+  mockModelsConfig = { initial: [] };
+  setup(['/c/new']);
+  expect(screen.queryByTestId('composer')).not.toBeInTheDocument();
+  expect(mockNewConversation).not.toHaveBeenCalled();
+  act(() => {
+    mockModelsConfig = { OpenSchool: ['circle-p0-sso-mock'] };
+    mockSetConversation();
+  });
+  await waitFor(() => expect(screen.getByTestId('composer')).toHaveTextContent('new'));
+  expect(mockNewConversation).toHaveBeenCalledWith(
+    expect.objectContaining({ modelsData: { OpenSchool: ['circle-p0-sso-mock'] } }),
+  );
 });
 
 it('reconciles Back and Forward with each route, including new chat', async () => {
