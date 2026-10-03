@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { OpenIDIcon, useToastContext } from '@librechat/client';
-import { ErrorTypes, registerPage } from 'librechat-data-provider';
+import { ErrorTypes, registerPage, apiBaseUrl } from 'librechat-data-provider';
 import { useOutletContext, useSearchParams, useLocation } from 'react-router-dom';
 import type { TLoginLayoutContext } from '~/common';
 import type { TranslationKeys } from '~/hooks';
@@ -116,7 +116,7 @@ function Login() {
       {startupConfig?.centralLogoutEnabled && (
         <p className="my-4 text-center text-sm text-text-secondary">
           {localize('com_auth_central_expired_help')}{' '}
-          <a className="underline" href="/api/auth/central-logout">
+          <a className="underline" href={`${apiBaseUrl()}/api/auth/central-logout`}>
             {localize('com_auth_central_recover')}
           </a>
         </p>
