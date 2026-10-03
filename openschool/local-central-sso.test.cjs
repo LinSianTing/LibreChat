@@ -414,6 +414,95 @@ const schemas = {
   runAsSystem: (fn) => fn(),
 };
 
+// Real controller/service bodies and signed own tokens; registry and Mongo
+// dependencies are deterministic substitutes, not a live multi-process test.
+for (const ordering of ['logout-before-validate', 'logout-after-validate', 'refresh-first']) {
+  test(`own-token refresh/logout race cannot revive a revoked session: ${ordering}`, { timeout: 5000 }, async () => {
+    const jwt = require('jsonwebtoken');
+    const a = central();
+    const b = { ...a, reference: '01900000-0000-7000-8000-000000000003', sid: 'browser-b' };
+    const registry = new Map([[a.reference, a], [b.reference, b]]);
+    const sessionA = { _id: 'aaaaaaaaaaaaaaaaaaaaaaaa', user: a.chatOwnerId,
+      expiration: new Date(a.expiresAtUtc), centralSession: a };
+    const sessionB = { ...sessionA, _id: 'bbbbbbbbbbbbbbbbbbbbbbbb', centralSession: b };
+    const sessions = new Map([[sessionA._id, sessionA], [sessionB._id, sessionB]]);
+    const payload = (s) => ({ id: s.user, sessionId: s._id, centralSession: s.centralSession });
+    let reach;
+    let release;
+    const reached = new Promise((resolve) => { reach = resolve; });
+    const barrier = new Promise((resolve) => { release = resolve; });
+    let gate = true;
+    let registrations = 0;
+    let created = 0;
+    const service = createCentralSSO({ env, fetchImpl: async (url, options) => {
+      const { reference } = JSON.parse(options.body);
+      if (url.endsWith('/register')) { registrations++; assert.fail('refresh must not register'); }
+      if (url.endsWith('/revoke')) { registry.delete(reference); return { status: 204 }; }
+      if (reference === a.reference && ordering === 'logout-before-validate' && gate) {
+        gate = false; reach(); await barrier;
+      }
+      const value = registry.get(reference);
+      return { status: value ? 200 : 401, json: async () => value };
+    } });
+    const models = {
+      getUserById: async () => user(a),
+      findSession: async ({ sessionId }) => sessions.get(sessionId),
+      deleteSession: async ({ sessionId }) => sessions.delete(String(sessionId)),
+      createSession: async () => { created++; assert.fail('refresh must not create'); },
+      generateRefreshToken: async (session) => {
+        if (session._id === sessionA._id && ordering === 'logout-after-validate' && gate) {
+          gate = false; reach(); await barrier;
+        }
+        // A late signer may finish with an already loaded object. Its output
+        // still cannot authenticate after central revocation or local deletion.
+        return jwt.sign(payload(session), env.JWT_REFRESH_SECRET, { algorithm: 'HS256', expiresIn: 300 });
+      },
+    };
+    const deps = { '@librechat/api': { ...api, clearCloudFrontCookies() {} },
+      '@librechat/data-schemas': schemas, jsonwebtoken: jwt, '~/models': models,
+      '~/server/services/LocalCentralSSO': service, cookie: require('cookie') };
+    const auth = load('api/server/services/AuthService.js', { ...deps, './LocalCentralSSO': service });
+    const refresh = load('api/server/controllers/AuthController.js', { ...deps, '~/server/services/AuthService': auth });
+    const logout = load('api/server/controllers/auth/LogoutController.js', { ...deps, '~/server/services/AuthService': auth });
+    const refreshReq = (token) => ({ headers: { cookie: `refreshToken=${token}` }, query: {} });
+    const original = jwt.sign(payload(sessionA), env.JWT_REFRESH_SECRET, { algorithm: 'HS256', expiresIn: 300 });
+    const result = response();
+    const running = refresh.refreshController(refreshReq(original), result);
+    if (ordering === 'refresh-first') await running;
+    else await reached;
+    const out = response();
+    try {
+      await logout.logoutController({ ...logoutRequest(), headers: { authorization:
+        `Bearer ${jwt.sign(payload(sessionA), env.JWT_SECRET, { algorithm: 'HS256', expiresIn: 300 })}` } }, out);
+      assert.equal(out.code, 200);
+      assert.equal(registry.has(a.reference), false);
+      assert.equal(sessions.has(sessionA._id), false);
+    } finally { release(); }
+    await running;
+    assert.equal(result.code, ordering === 'logout-before-validate' ? 401 : 200);
+    if (ordering === 'logout-before-validate') assert.deepEqual(result.cookies, []);
+    else {
+      const signed = jwt.verify(result.body.token, env.JWT_SECRET, { algorithms: ['HS256'] });
+      await rejects(() => service.authorize(signed, user(a), models.findSession));
+      const late = result.cookies.find((c) => c.name === 'refreshToken').value;
+      const retry = response();
+      await refresh.refreshController(refreshReq(late), retry);
+      assert.equal(retry.code, 401);
+      assert.deepEqual(retry.cookies, []);
+    }
+    // Even retaining the stale local object cannot bypass central revocation.
+    await rejects(() => service.authorize(payload(sessionA), user(a), async () => sessionA));
+    const other = response();
+    const otherToken = jwt.sign(payload(sessionB), env.JWT_REFRESH_SECRET, { algorithm: 'HS256', expiresIn: 300 });
+    await refresh.refreshController(refreshReq(otherToken), other);
+    assert.equal(other.code, 200);
+    await service.authorize(jwt.verify(other.body.token, env.JWT_SECRET), user(b), models.findSession);
+    assert.equal(created, 0);
+    assert.equal(registrations, 0);
+    assert.equal(sessionA.expiration.toISOString(), a.expiresAtUtc);
+  });
+}
+
 test('real Passport callback hook registers before legacy user logic and refuses admin callback', async () => {
   const { service, value, calls } = fixture();
   const strategies = {};
