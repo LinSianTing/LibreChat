@@ -1,4 +1,5 @@
 const centralSSO = require('./LocalCentralSSO');
+const trustProfiles = require('./CentralTrustProfile');
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 function identityHeaders(user) {
@@ -15,15 +16,13 @@ function identityHeaders(user) {
 
 async function models(user) {
   const headers = identityHeaders(user);
-  if (
-    !centralSSO.enabled() ||
-    process.env.NODE_ENV !== 'development' ||
-    !process.env.OPENSCHOOL_GATEWAY_KEY
-  ) {
+  if (!centralSSO.enabled() || !process.env.OPENSCHOOL_GATEWAY_KEY) {
     throw new Error('Central gateway configuration unavailable');
   }
-  // Fixed local P0 destination, no default-model fallback or cross-user cache.
-  const response = await fetch('http://localhost:15481/ai-gateway/v1/models', {
+  // Use the same validated, fixed destination as the central session service.
+  // Neither caller input nor a custom endpoint can override this trust profile.
+  const profile = trustProfiles.validate(process.env);
+  const response = await fetch(`${profile.api}/ai-gateway/v1/models`, {
     headers: { ...headers, Authorization: `Bearer ${process.env.OPENSCHOOL_GATEWAY_KEY}` },
     redirect: 'error',
     signal: AbortSignal.timeout(5000),
