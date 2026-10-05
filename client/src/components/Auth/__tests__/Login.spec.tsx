@@ -1,5 +1,6 @@
 import * as reactRouter from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
+import * as dataProvider from 'librechat-data-provider';
 import type { TStartupConfig } from 'librechat-data-provider';
 import { getByTestId, render, waitFor } from 'test/layout-test-utils';
 import * as endpointQueries from '~/data-provider/Endpoints/queries';
@@ -10,6 +11,11 @@ import AuthLayout from '~/components/Auth/AuthLayout';
 import Login from '~/components/Auth/Login';
 
 jest.mock('librechat-data-provider/react-query');
+
+jest.mock('librechat-data-provider', () => ({
+  ...jest.requireActual('librechat-data-provider'),
+  apiBaseUrl: jest.fn(() => ''),
+}));
 
 const mockShowToast = jest.fn();
 
@@ -220,19 +226,27 @@ test('Navigates to / on successful login', async () => {
 });
 
 describe('OAuth rejection redirects', () => {
-  test('central login offers explicit original-session recovery without exposing the IdP hint', async () => {
-    window.history.pushState({}, '', '/login?redirect=false');
-    const view = setup({
-      useGetStartupConfigReturnValue: {
-        ...mockStartupConfig,
-        data: { ...mockStartupConfig.data, centralLogoutEnabled: true, openidAutoRedirect: false },
-      },
-    });
-    const link = await view.findByRole('link', { name: 'End original session / Retry sign-out' });
-    expect(link).toHaveAttribute('href', '/api/auth/central-logout');
-    expect(document.body).toHaveTextContent('The old session will not be extended.');
-    expect(document.body.innerHTML).not.toContain('id_token_hint');
-  });
+  test.each(['', '/chat'])(
+    'central login offers original-session recovery under base %s without exposing the IdP hint',
+    async (base) => {
+      jest.mocked(dataProvider.apiBaseUrl).mockReturnValue(base);
+      window.history.pushState({}, '', '/login?redirect=false');
+      const view = setup({
+        useGetStartupConfigReturnValue: {
+          ...mockStartupConfig,
+          data: {
+            ...mockStartupConfig.data,
+            centralLogoutEnabled: true,
+            openidAutoRedirect: false,
+          },
+        },
+      });
+      const link = await view.findByRole('link', { name: 'End original session / Retry sign-out' });
+      expect(link).toHaveAttribute('href', `${base}/api/auth/central-logout`);
+      expect(document.body).toHaveTextContent('The old session will not be extended.');
+      expect(document.body.innerHTML).not.toContain('id_token_hint');
+    },
+  );
   const enterAt = (search: string) => {
     window.history.pushState({}, '', `/login${search}`);
   };
