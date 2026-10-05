@@ -1,3 +1,4 @@
+const { Types } = require('mongoose');
 const trustProfiles = require('./CentralTrustProfile');
 const { createCentralLogout } = require('./CentralLogout');
 const UUID =
@@ -136,7 +137,35 @@ function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(..
       ).toISOString(),
     };
   };
-  const registerVerified = async (tokenset, findUser, existingUsersOnly) => {
+  const ownerFields = '-password -totpSecret -backupCodes +agentTriggerDeletionStartedAt';
+  /** First central login: Web already created the member and chatOwnerId; never link by email. */
+  const createOwner = async (central, claims, findUser, createUser) => {
+    if (typeof createUser !== 'function') {
+      throw denied();
+    }
+    const username = `m-${central.memberId.replace(/-/g, '').slice(0, 12)}`;
+    const name = typeof claims.name === 'string' ? claims.name.trim() : '';
+    try {
+      await createUser({
+        _id: new Types.ObjectId(central.chatOwnerId),
+        provider: 'openid',
+        openidId: claims.sub,
+        openidIssuer: central.issuer,
+        username,
+        name: name && name.length <= 100 ? name : username,
+        email: `${central.memberId.toLowerCase()}@member.openschool.invalid`,
+        emailVerified: false,
+        role: 'USER',
+      });
+    } catch (error) {
+      // A concurrent first login may have created the same owner; any other failure denies.
+      if (error?.code !== 11000 && !/E11000/.test(String(error?.message))) {
+        throw denied();
+      }
+    }
+    return findUser({ _id: central.chatOwnerId }, ownerFields);
+  };
+  const registerVerified = async (tokenset, findUser, existingUsersOnly, createUser) => {
     assertConfig();
     if (existingUsersOnly || typeof tokenset?.claims !== 'function' || !tokenset.id_token) {
       throw denied();
@@ -156,13 +185,14 @@ function createCentralSSO({ env = process.env, fetchImpl = (...args) => fetch(..
     if (central.subject !== claims.sub || central.sid !== claims.sid) {
       throw denied();
     }
-    const user = owner(
-      await findUser(
-        { _id: central.chatOwnerId },
-        '-password -totpSecret -backupCodes +agentTriggerDeletionStartedAt',
-      ),
-      central,
-    );
+    const found =
+      (await findUser({ _id: central.chatOwnerId }, ownerFields)) ??
+      (await createOwner(central, claims, findUser, createUser));
+    // Pre-provisioned legacy owners have no openidId; a set one must be this subject.
+    if (found?.openidId != null && found.openidId !== claims.sub) {
+      throw denied();
+    }
+    const user = owner(found, central);
     const authenticated = attach(user, central);
     callbackGrants.set(authenticated, { central, logoutIdToken: tokenset.id_token });
     return authenticated;

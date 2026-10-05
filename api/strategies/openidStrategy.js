@@ -852,7 +852,17 @@ function createOpenIDCallback(existingUsersOnly) {
   return async (tokenset, done) => {
     try {
       if (centralSSO.enabled()) {
-        return done(null, await centralSSO.registerVerified(tokenset, findUser, existingUsersOnly));
+        const createCentralUser = async (data) =>
+          createUser(data, getBalanceConfig(await getAppConfig({ baseOnly: true })), true, true);
+        return done(
+          null,
+          await centralSSO.registerVerified(
+            tokenset,
+            findUser,
+            existingUsersOnly,
+            createCentralUser,
+          ),
+        );
       }
       const user = await processOpenIDAuth(tokenset, existingUsersOnly);
       done(null, user);

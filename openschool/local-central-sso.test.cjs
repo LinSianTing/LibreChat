@@ -205,6 +205,161 @@ test('missing, admin, temporary, deleting and wrong Mongo owners deny without us
     await rejects(() => service.registerVerified(tokens(value), async () => candidate));
   }
 });
+/** In-memory owner store keyed by _id only; it records every lookup to prove no email linking. */
+const ownerStore = (initial = []) => {
+  const rows = new Map(initial.map((row) => [String(row._id), row]));
+  const queries = [];
+  const created = [];
+  return {
+    rows,
+    queries,
+    created,
+    findUser: async (query) => {
+      queries.push(query);
+      assert.deepEqual(Object.keys(query), ['_id']);
+      return rows.get(String(query._id)) ?? null;
+    },
+    createUser: async (data) => {
+      created.push(data);
+      if (rows.has(String(data._id))) {
+        throw Object.assign(new Error('E11000 duplicate key error'), { code: 11000 });
+      }
+      rows.set(String(data._id), { ...data });
+      return { ...data };
+    },
+  };
+};
+const namedTokens = (binding, name) => {
+  const base = tokens(binding);
+  return { ...base, claims: () => ({ ...base.claims(), name }) };
+};
+test('self-registered first login creates exactly the central owner without real email, then proceeds', async () => {
+  const { service, value } = fixture();
+  const sameEmail = {
+    _id: 'bbbbbbbbbbbbbbbbbbbbbbbb',
+    role: 'USER',
+    provider: 'google',
+    email: 'real.person@gmail.com',
+  };
+  const snapshot = { ...sameEmail };
+  const store = ownerStore([sameEmail]);
+  const authenticated = await service.registerVerified(
+    namedTokens(value, '  Real Person  '),
+    store.findUser,
+    undefined,
+    store.createUser,
+  );
+  assert.equal(store.created.length, 1);
+  const data = store.created[0];
+  assert.equal(data._id.constructor.name, 'ObjectId');
+  assert.equal(String(data._id), value.chatOwnerId);
+  assert.deepEqual(
+    { ...data, _id: String(data._id) },
+    {
+      _id: value.chatOwnerId,
+      provider: 'openid',
+      openidId: value.subject,
+      openidIssuer: value.issuer,
+      username: 'm-019000000000',
+      name: 'Real Person',
+      email: `${value.memberId}@member.openschool.invalid`,
+      emailVerified: false,
+      role: 'USER',
+    },
+  );
+  assert.equal('tenantId' in data, false);
+  assert.equal(authenticated.id, value.chatOwnerId);
+  assert.equal(authenticated.memberId, value.memberId);
+  assert.ok(store.queries.every((query) => Object.keys(query).join() === '_id'));
+  assert.deepEqual(sameEmail, snapshot);
+  assert.equal(store.rows.size, 2);
+});
+test('self-registration name falls back to username when absent, blank or longer than 100', async () => {
+  for (const name of [undefined, '   ', 'x'.repeat(101), 42]) {
+    const { service, value } = fixture();
+    const store = ownerStore();
+    await service.registerVerified(
+      namedTokens(value, name),
+      store.findUser,
+      undefined,
+      store.createUser,
+    );
+    assert.equal(store.created[0].name, 'm-019000000000');
+  }
+});
+test('concurrent first login duplicate key re-reads the owner; other create errors deny', async () => {
+  const { service, value } = fixture();
+  const store = ownerStore();
+  let reads = 0;
+  const racingFind = async (query) => {
+    reads += 1;
+    return reads === 1 ? null : store.findUser(query);
+  };
+  await store.createUser({ ...user(value), openidId: value.subject });
+  const authenticated = await service.registerVerified(
+    tokens(value),
+    racingFind,
+    undefined,
+    store.createUser,
+  );
+  assert.equal(authenticated.id, value.chatOwnerId);
+  assert.equal(reads, 2);
+
+  const duplicateOnOtherIndex = ownerStore();
+  await rejects(() =>
+    service.registerVerified(tokens(value), duplicateOnOtherIndex.findUser, undefined, async () => {
+      throw Object.assign(new Error('E11000 duplicate key error index: email_1'), { code: 11000 });
+    }),
+  );
+  for (const failure of [
+    new Error('validation failed'),
+    Object.assign(new Error('x'), { code: 1 }),
+  ]) {
+    const empty = ownerStore();
+    await rejects(() =>
+      service.registerVerified(tokens(value), empty.findUser, undefined, async () => {
+        throw failure;
+      }),
+    );
+  }
+  await rejects(() => service.registerVerified(tokens(value), async () => null));
+});
+test('existing owner must match subject when openidId is set; legacy owner without openidId still allowed', async () => {
+  const { service, value } = fixture();
+  const create = async () => assert.fail('existing owners are never created');
+  await rejects(() =>
+    service.registerVerified(
+      tokens(value),
+      async () => ({ ...user(value), openidId: 'another-subject' }),
+      undefined,
+      create,
+    ),
+  );
+  const matched = await service.registerVerified(
+    tokens(value),
+    async () => ({ ...user(value), openidId: value.subject }),
+    undefined,
+    create,
+  );
+  assert.equal(matched.id, value.chatOwnerId);
+  const legacy = await service.registerVerified(
+    tokens(value),
+    async () => user(value),
+    undefined,
+    create,
+  );
+  assert.equal(legacy.id, value.chatOwnerId);
+  assert.equal(legacy.email, 'unchanged@test.invalid');
+});
+test('existingUsersOnly still denies before any registration or creation', async () => {
+  const { service, value, calls } = fixture();
+  const store = ownerStore();
+  await rejects(() =>
+    service.registerVerified(tokens(value), store.findUser, true, store.createUser),
+  );
+  assert.equal(calls.length, 0);
+  assert.equal(store.created.length, 0);
+});
 test('every JWT validates reference and compares signed, stored, live identity; missing local session denies', async () => {
   const { service, value, calls } = fixture();
   const payload = {
@@ -554,6 +709,66 @@ test('real Passport callback hook registers before legacy user logic and refuses
   assert.equal(authenticated.reference, value.reference);
   await module.adminCallback(tokens(value), (error) => assert.ok(error));
   assert.equal(calls.length, 1);
+});
+
+test('real Passport callback creates a missing central owner through createUser with normal balance', async () => {
+  const { service, value } = fixture();
+  const strategies = {};
+  class Strategy {
+    constructor(options, callback) {
+      this.callback = callback;
+    }
+  }
+  const balance = { enabled: true, startBalance: 20000 };
+  const createCalls = [];
+  let stored = null;
+  const module = load('api/strategies/openidStrategy.js', {
+    '~/server/services/LocalCentralSSO': service,
+    '~/server/services/Config': {
+      getAppConfig: async (options) => {
+        assert.equal(options?.baseOnly, true);
+        return { balance };
+      },
+    },
+    '~/models': {
+      findUser: async (query) => {
+        assert.deepEqual(Object.keys(query), ['_id']);
+        return stored;
+      },
+      createUser: async (...args) => {
+        createCalls.push(args);
+        stored = { ...args[0], _id: String(args[0]._id) };
+        return stored;
+      },
+    },
+    '@librechat/api': { ...api, getBalanceConfig: (config) => config.balance },
+    '@librechat/data-schemas': schemas,
+    'librechat-data-provider': { ErrorTypes: { AUTH_FAILED: 'AUTH_FAILED' } },
+    'openid-client/passport': { Strategy },
+    passport: {
+      use: (name, strategy) => {
+        strategies[name] = strategy;
+      },
+    },
+    'openid-client': {
+      discovery: async () => ({}),
+      randomState: () => 'state',
+      randomNonce: () => 'nonce',
+      allowInsecureRequests() {},
+    },
+  });
+  await module.setupOpenId();
+  let authenticated;
+  await strategies.openid.callback(tokens(value), (error, result) => {
+    assert.ifError(error);
+    authenticated = result;
+  });
+  assert.equal(createCalls.length, 1);
+  assert.equal(createCalls[0][1], balance);
+  assert.equal(createCalls[0][2], true);
+  assert.equal(createCalls[0][3], true);
+  assert.equal(createCalls[0][0].email, `${value.memberId}@member.openschool.invalid`);
+  assert.equal(authenticated.id, value.chatOwnerId);
 });
 
 test('real JWT strategy rejects unbound token and publishes validated member/reference without role fallback', async () => {
