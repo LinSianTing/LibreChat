@@ -86,6 +86,12 @@ jest.mock('~/components/Nav/AccountSettings', () => ({
   default: () => <div data-testid="account-settings" />,
 }));
 
+jest.mock('~/openschool/OpenSchoolRailLink', () => ({
+  __esModule: true,
+  default: ({ collapsed }: { collapsed: boolean }) =>
+    collapsed ? <a href="https://openschool.example/me">{'openschool-workspace'}</a> : null,
+}));
+
 import ExpandedPanel from '../ExpandedPanel';
 import store from '~/store';
 
@@ -201,6 +207,16 @@ describe('ExpandedPanel', () => {
 
       expect(onClick).toHaveBeenCalledTimes(1);
       expect(onNavigate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('OpenSchool workspace rail link', () => {
+    it('is offered in the rail only while the panel is collapsed', () => {
+      const { unmount } = renderPanel({ expanded: false });
+      expect(screen.getByRole('link', { name: 'openschool-workspace' })).toBeInTheDocument();
+      unmount();
+      renderPanel({ expanded: true });
+      expect(screen.queryByRole('link', { name: 'openschool-workspace' })).toBeNull();
     });
   });
 
