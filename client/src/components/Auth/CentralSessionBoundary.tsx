@@ -32,6 +32,8 @@ export default function CentralSessionBoundary({
   const [pending, setPending] = useState(false);
   const [verified, setVerified] = useState(false);
   const retry = useRef<() => void>(() => {});
+  /** Session whose content is on screen after a successful check; cleared whenever it is covered. */
+  const shown = useRef<string | undefined>(undefined);
   const reference = centralReference(token);
   const central = reference != null;
   useLayoutEffect(() => {
@@ -47,13 +49,22 @@ export default function CentralSessionBoundary({
     const hide = () => {
       generation++;
       controller?.abort();
+      shown.current = undefined;
       lockCentralDrafts();
       if (content.current) content.current.style.display = 'none';
       setPending(true);
     };
-    const check = async () => {
-      hide();
-      if (document.visibilityState === 'hidden') return;
+    /** Content that stayed on screen (window focus, token refresh for the same session) is
+     * revalidated without covering it, so the composer keeps focus and keystrokes. Any failure
+     * covers it; hidden pages, restored pages and a different session still cover first. */
+    const check = async (background = false) => {
+      if (background) {
+        generation++;
+        controller?.abort();
+      } else {
+        hide();
+        if (document.visibilityState === 'hidden') return;
+      }
       const own = generation;
       controller = new AbortController();
       const ownController = controller;
@@ -68,6 +79,8 @@ export default function CentralSessionBoundary({
         });
         if (disposed || own !== generation) return;
         if (response.status === 204) {
+          shown.current = reference;
+          if (background) return;
           unlockCentralDrafts();
           setVerified(true);
           if (content.current) content.current.style.display = 'contents';
@@ -77,19 +90,26 @@ export default function CentralSessionBoundary({
           // Full document replacement drops queries, attachments and late async callbacks.
           // Never call logout with the newer browser's cookies, or clear another scope.
           window.location.replace(`${apiBaseUrl()}/login?redirect=false`);
+        } else if (background) {
+          hide();
         }
       } catch {
         /* Network/503 stays covered; retry does not renew the session. */
+        if (background && !disposed && own === generation) hide();
       } finally {
         window.clearTimeout(timer);
       }
+    };
+    const revalidate = () => {
+      void check(shown.current === reference && document.visibilityState === 'visible');
     };
     const visibility = () => {
       if (document.hidden) hide();
       else void check();
     };
-    const resume = () => {
-      void check();
+    const resume = (event: Event) => {
+      if ((event as PageTransitionEvent).persisted) void check();
+      else revalidate();
     };
     let channel: BroadcastChannel | undefined;
     try {
@@ -104,8 +124,8 @@ export default function CentralSessionBoundary({
     window.addEventListener('pagehide', hide);
     window.addEventListener('pageshow', resume);
     window.addEventListener('focus', resume);
-    retry.current = resume;
-    void check();
+    retry.current = () => void check();
+    revalidate();
     return () => {
       disposed = true;
       generation++;
@@ -116,7 +136,7 @@ export default function CentralSessionBoundary({
       window.removeEventListener('pageshow', resume);
       window.removeEventListener('focus', resume);
     };
-  }, [central, token]);
+  }, [central, token, reference]);
   return (
     <>
       {central && pending && (
