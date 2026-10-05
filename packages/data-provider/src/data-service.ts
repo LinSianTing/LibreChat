@@ -418,6 +418,11 @@ export const getModels = async (): Promise<t.TModelsConfig> => {
   return request.get(endpoints.models());
 };
 
+/** Trusted per-user display names for OpenSchool models (central SSO only; empty otherwise). */
+export const getOpenSchoolModelNames = async (): Promise<{ names: Record<string, string> }> => {
+  return request.get(endpoints.openschoolModelNames());
+};
+
 /* Assistants */
 
 export const createAssistant = ({

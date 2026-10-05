@@ -102,3 +102,24 @@ export const useGetSharedStartupConfig = (
     },
   );
 };
+
+/**
+ * Trusted display names for the OpenSchool endpoint's models, resolved server-side per user.
+ * Refetched on mount so a newly granted circle shows its name; the raw id is the fallback.
+ */
+export const useOpenSchoolModelNamesQuery = (
+  config?: UseQueryOptions<Record<string, string>>,
+): QueryObserverResult<Record<string, string>> => {
+  const queriesEnabled = useRecoilValue<boolean>(store.queriesEnabled);
+  return useQuery<Record<string, string>>(
+    [QueryKeys.openschoolModelNames],
+    async () => (await dataService.getOpenSchoolModelNames())?.names ?? {},
+    {
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      retry: false,
+      ...config,
+      enabled: (config?.enabled ?? true) === true && queriesEnabled,
+    },
+  );
+};

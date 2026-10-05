@@ -9,6 +9,8 @@ export interface Endpoint {
   icon: React.ReactNode;
   agentNames?: Record<string, string>;
   assistantNames?: Record<string, string>;
+  /** Trusted display names for plain model ids (e.g. OpenSchool circles); ids stay the values. */
+  modelNames?: Record<string, string>;
   modelIcons?: Record<string, string | undefined>;
   showMarketplace?: boolean;
   searchAliases?: string[];

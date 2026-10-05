@@ -1,4 +1,4 @@
-const { models, identityHeaders } = require('./CentralGateway');
+const { models, modelCatalog, identityHeaders } = require('./CentralGateway');
 const env = { ...process.env };
 const originalFetch = global.fetch;
 const a = {
@@ -107,4 +107,44 @@ test.each([401, 403, 500])('demo gateway %s never falls back to personal', async
   global.fetch.mockResolvedValueOnce(new Response('{}', { status }));
   await expect(models(a)).rejects.toMatchObject({ status: status === 500 ? 503 : status });
   expect(global.fetch).toHaveBeenCalledTimes(1);
+});
+
+test('catalog returns trusted display names and keeps ids unchanged', async () => {
+  const body = {
+    object: 'list',
+    data: [
+      { id: 'circle-p0-sso-mock', name: '  P0 SSO synthetic test circle  ', object: 'model' },
+      { id: 'personal', name: '個人備課助理', object: 'model' },
+      { id: 'circle-no-name' },
+      { id: 'circle-empty', name: '   ' },
+      { id: 'circle-long', name: 'x'.repeat(101) },
+      { id: 'circle-control', name: 'bad\nname' },
+      { id: 'circle-c1', name: 'bad\u0085name' },
+      { id: 'circle-object', name: { text: 'nope' } },
+      { id: 'circle-max', name: 'y'.repeat(100) },
+    ],
+  };
+  global.fetch
+    .mockResolvedValueOnce(new Response(JSON.stringify(body)))
+    .mockResolvedValueOnce(new Response(JSON.stringify(body)));
+  const catalog = await modelCatalog(a);
+  expect(catalog.ids).toEqual(body.data.map((entry) => entry.id));
+  expect(catalog.names).toEqual({
+    'circle-p0-sso-mock': 'P0 SSO synthetic test circle',
+    personal: '個人備課助理',
+    'circle-max': 'y'.repeat(100),
+  });
+  expect(await models(a)).toEqual({ OpenSchool: body.data.map((entry) => entry.id) });
+});
+
+test('a bad name never fails the list, but a bad id still does', async () => {
+  global.fetch
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ object: 'list', data: [{ id: 'circle-a', name: 42 }] })),
+    )
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ object: 'list', data: [{ id: 'Circle-A', name: 'ok' }] })),
+    );
+  expect(await modelCatalog(a)).toEqual({ ids: ['circle-a'], names: {} });
+  await expect(modelCatalog(a)).rejects.toThrow('Invalid central model response');
 });

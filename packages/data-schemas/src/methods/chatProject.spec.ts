@@ -490,3 +490,59 @@ describe('ChatProject methods', () => {
     expect(deleteResult.deletedCount).toBe(0);
   });
 });
+
+describe('ChatProject name lookup and get-or-create', () => {
+  it('finds a project by exact trimmed name scoped to the user', async () => {
+    const project = await methods.createChatProject('user-a', { name: 'Circle Alpha' });
+    await methods.createChatProject('user-b', { name: 'Circle Beta' });
+
+    const found = await methods.findChatProjectByName('user-a', '  Circle Alpha  ');
+    expect(found?._id?.toString()).toBe(project._id?.toString());
+    expect(await methods.findChatProjectByName('user-a', 'circle alpha')).toBeNull();
+    expect(await methods.findChatProjectByName('user-a', 'Circle')).toBeNull();
+    expect(await methods.findChatProjectByName('user-a', 'Circle Beta')).toBeNull();
+    expect(await methods.findChatProjectByName('user-b', 'Circle Alpha')).toBeNull();
+    expect(await methods.findChatProjectByName('user-a', '   ')).toBeNull();
+  });
+
+  it('does not treat the name as a regular expression or query operator', async () => {
+    await methods.createChatProject('user-a', { name: 'Circle Alpha' });
+    expect(await methods.findChatProjectByName('user-a', 'Circle.*')).toBeNull();
+    expect(
+      await methods.findChatProjectByName('user-a', { $ne: null } as unknown as string),
+    ).toBeNull();
+  });
+
+  it('creates once and reuses the project afterwards', async () => {
+    const first = await methods.getOrCreateChatProjectByName('user-a', 'P0 circle');
+    const second = await methods.getOrCreateChatProjectByName('user-a', ' P0 circle ');
+    expect(second._id?.toString()).toBe(first._id?.toString());
+    expect(first.name).toBe('P0 circle');
+    expect(await ChatProject.countDocuments({ user: 'user-a' })).toBe(1);
+  });
+
+  it('serializes concurrent calls for the same user and name into one project', async () => {
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => methods.getOrCreateChatProjectByName('user-a', 'Same')),
+    );
+    const ids = new Set(results.map((project) => project._id?.toString()));
+    expect(ids.size).toBe(1);
+    expect(await ChatProject.countDocuments({ user: 'user-a', name: 'Same' })).toBe(1);
+  });
+
+  it('gives different users different projects for the same name', async () => {
+    const [a, b] = await Promise.all([
+      methods.getOrCreateChatProjectByName('user-a', 'Shared circle'),
+      methods.getOrCreateChatProjectByName('user-b', 'Shared circle'),
+    ]);
+    expect(a._id?.toString()).not.toBe(b._id?.toString());
+    expect(a.user).toBe('user-a');
+    expect(b.user).toBe('user-b');
+  });
+
+  it('rejects an empty name', async () => {
+    await expect(methods.getOrCreateChatProjectByName('user-a', '  ')).rejects.toThrow(
+      'Project name is required',
+    );
+  });
+});

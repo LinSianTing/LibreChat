@@ -1,13 +1,27 @@
 const express = require('express');
 const { requireJwtAuth, requireSameOrigin } = require('~/server/middleware');
 const centralSSO = require('~/server/services/LocalCentralSSO');
-const { identityHeaders } = require('~/server/services/CentralGateway');
+const { identityHeaders, modelCatalog } = require('~/server/services/CentralGateway');
 
 const router = express.Router();
 const ID = /^[a-f0-9]{64}$/;
 const MODEL = /^(personal|circle-[a-z0-9-]{1,64})$/;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const TIMEOUT_MS = 5000;
+
+/** Trusted, per-user display names for OpenSchool models; never taken from the client. */
+router.get('/model-names', requireJwtAuth, async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  if (!centralSSO.enabled()) {
+    return res.json({ names: {} });
+  }
+  try {
+    const { names } = await modelCatalog(req.user);
+    return res.json({ names });
+  } catch (error) {
+    return res.status(error.status ?? 503).json({ error: 'Central model eligibility unavailable' });
+  }
+});
 
 router.post('/handoff', requireJwtAuth, requireSameOrigin, async (req, res) => {
   res.set('Cache-Control', 'no-store');

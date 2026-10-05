@@ -192,6 +192,8 @@ export const tokenConfig = () => `${BASE_URL}/api/endpoints/token-config`;
 
 export const models = () => `${BASE_URL}/api/models`;
 
+export const openschoolModelNames = () => `${BASE_URL}/api/openschool/model-names`;
+
 export const tokenizer = () => `${BASE_URL}/api/tokenizer`;
 
 export const login = () => `${BASE_URL}/api/auth/login`;

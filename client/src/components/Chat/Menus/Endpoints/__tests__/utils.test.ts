@@ -1,6 +1,6 @@
 import type { useLocalize } from '~/hooks';
 import type { Endpoint } from '~/common';
-import { filterItems } from '../utils';
+import { filterItems, getDisplayValue, getModelLabel } from '../utils';
 
 const agentsEndpoint: Endpoint = {
   value: 'agents',
@@ -42,5 +42,43 @@ describe('model selector utilities', () => {
   it('does not match agents when there are no selectable agent options', () => {
     const results = filterItems([disabledAgentsEndpoint], 'my agents', undefined, undefined);
     expect(results).toEqual([]);
+  });
+});
+
+describe('OpenSchool model display names', () => {
+  const localize = ((key: string) => key) as ReturnType<typeof useLocalize>;
+  const openschool: Endpoint = {
+    value: 'OpenSchool',
+    label: 'OpenSchool',
+    hasModels: true,
+    icon: null,
+    models: [{ name: 'circle-p0-sso-mock' }, { name: 'circle-unnamed' }],
+    modelNames: { 'circle-p0-sso-mock': 'P0 SSO synthetic test circle' },
+  };
+
+  it('labels a model with its trusted name, falling back to the raw id', () => {
+    expect(getModelLabel(openschool, 'circle-p0-sso-mock')).toBe('P0 SSO synthetic test circle');
+    expect(getModelLabel(openschool, 'circle-unnamed')).toBe('circle-unnamed');
+    expect(getModelLabel({}, 'circle-p0-sso-mock')).toBe('circle-p0-sso-mock');
+  });
+
+  it('shows the circle name as the selected model display value', () => {
+    const display = (model: string, endpoints: Endpoint[] = [openschool]) =>
+      getDisplayValue({
+        localize,
+        mappedEndpoints: endpoints,
+        modelSpecs: [],
+        selectedValues: { endpoint: 'OpenSchool', model, modelSpec: null },
+      });
+    expect(display('circle-p0-sso-mock')).toBe('P0 SSO synthetic test circle');
+    expect(display('circle-unnamed')).toBe('circle-unnamed');
+    expect(display('circle-p0-sso-mock', [{ ...openschool, modelNames: undefined }])).toBe(
+      'circle-p0-sso-mock',
+    );
+  });
+
+  it('finds an endpoint by a model display name', () => {
+    expect(filterItems([openschool], 'synthetic', undefined, undefined)).toEqual([openschool]);
+    expect(filterItems([openschool], 'no such circle', undefined, undefined)).toEqual([]);
   });
 });

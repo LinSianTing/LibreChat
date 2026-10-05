@@ -15,6 +15,7 @@ const {
   parseCompactConvo,
   getDefaultParamsEndpoint,
 } = require('librechat-data-provider');
+const { applyCircleProject } = require('~/server/services/CentralCircleProject');
 const azureAssistants = require('~/server/services/Endpoints/azureAssistants');
 const assistants = require('~/server/services/Endpoints/assistants');
 const { getEndpointsConfig } = require('~/server/services/Config');
@@ -170,6 +171,8 @@ async function buildEndpointOption(req, res, next) {
       return res.status(400).json(contentFilterBlockResponse(finding));
     }
   }
+
+  parsedBody = await applyCircleProject(req, parsedBody);
 
   try {
     const builder = isAgents

@@ -48,8 +48,18 @@ jest.mock('~/server/services/Endpoints/agents', () => ({
 
 jest.mock('~/models', () => ({
   updateFilesUsage: jest.fn(),
+  getOrCreateChatProjectByName: jest.fn(),
 }));
-const { updateFilesUsage } = require('~/models');
+const { updateFilesUsage, getOrCreateChatProjectByName } = require('~/models');
+
+const mockCentralEnabled = jest.fn(() => false);
+jest.mock('~/server/services/LocalCentralSSO', () => ({
+  enabled: () => mockCentralEnabled(),
+}));
+const mockModelCatalog = jest.fn();
+jest.mock('~/server/services/CentralGateway', () => ({
+  modelCatalog: (...args) => mockModelCatalog(...args),
+}));
 
 const mockGetEndpointsConfig = jest.fn();
 jest.mock('~/server/services/Config', () => ({
@@ -726,5 +736,118 @@ describe('buildEndpointOption - defaultParamsEndpoint parsing', () => {
       res,
       expect.objectContaining({ text: 'Invalid model spec' }),
     );
+  });
+});
+
+describe('buildEndpointOption - OpenSchool circle projects', () => {
+  const user = { id: 'user-1' };
+  const circleName = 'P0 SSO synthetic test circle';
+  const serverProjectId = '65f000000000000000000001';
+  const foreignProjectId = '65f0000000000000000000ff';
+
+  const createAgentReq = (body) => ({
+    body: {
+      endpoint: 'OpenSchool',
+      endpointType: EModelEndpoint.custom,
+      model: 'circle-p0-sso-mock',
+      text: 'hello',
+      ...body,
+    },
+    config: { modelSpecs: null },
+    baseUrl: '/api/agents/chat',
+    user,
+  });
+
+  const run = async (req) => {
+    const next = jest.fn();
+    await buildEndpointOption(req, createRes(), next);
+    expect(next).toHaveBeenCalledTimes(1);
+    return req.body.endpointOption;
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetEndpointsConfig.mockResolvedValue({
+      OpenSchool: { type: EModelEndpoint.custom },
+    });
+    mockCentralEnabled.mockReturnValue(true);
+    mockModelCatalog.mockResolvedValue({
+      ids: ['circle-p0-sso-mock', 'personal'],
+      names: { 'circle-p0-sso-mock': circleName, personal: 'Personal assistant' },
+    });
+    getOrCreateChatProjectByName.mockResolvedValue({ _id: { toString: () => serverProjectId } });
+  });
+
+  it.each([
+    ['no client value', {}],
+    ['a client null', { chatProjectId: null }],
+    ['a foreign client id', { chatProjectId: foreignProjectId }],
+  ])('files a new circle conversation under the trusted project (%s)', async (_label, extra) => {
+    const req = createAgentReq({ conversationId: 'new', ...extra });
+    const option = await run(req);
+    expect(mockModelCatalog).toHaveBeenCalledWith(user);
+    expect(getOrCreateChatProjectByName).toHaveBeenCalledWith('user-1', circleName);
+    expect(option.chatProjectId).toBe(serverProjectId);
+    expect(req.body.chatProjectId).toBe(serverProjectId);
+  });
+
+  it('treats a missing conversationId as new', async () => {
+    const option = await run(createAgentReq({ chatProjectId: foreignProjectId }));
+    expect(option.chatProjectId).toBe(serverProjectId);
+  });
+
+  it('leaves an existing conversation untouched', async () => {
+    const req = createAgentReq({
+      conversationId: 'existing-convo',
+      chatProjectId: foreignProjectId,
+    });
+    const option = await run(req);
+    expect(mockModelCatalog).not.toHaveBeenCalled();
+    expect(getOrCreateChatProjectByName).not.toHaveBeenCalled();
+    expect(req.body.chatProjectId).toBe(foreignProjectId);
+    expect(option.chatProjectId).not.toBe(serverProjectId);
+  });
+
+  it('gives personal conversations no automatic project', async () => {
+    const req = createAgentReq({
+      model: 'personal',
+      conversationId: 'new',
+      chatProjectId: foreignProjectId,
+    });
+    await run(req);
+    expect(mockModelCatalog).not.toHaveBeenCalled();
+    expect(getOrCreateChatProjectByName).not.toHaveBeenCalled();
+    expect(req.body.chatProjectId).toBe(foreignProjectId);
+  });
+
+  it('does nothing when central SSO is disabled or the endpoint differs', async () => {
+    mockCentralEnabled.mockReturnValue(false);
+    await run(createAgentReq({ conversationId: 'new' }));
+    mockCentralEnabled.mockReturnValue(true);
+    await run(createAgentReq({ conversationId: 'new', endpoint: 'Other' }));
+    expect(mockModelCatalog).not.toHaveBeenCalled();
+    expect(getOrCreateChatProjectByName).not.toHaveBeenCalled();
+  });
+
+  it('proceeds without a project when the circle has no trusted name', async () => {
+    mockModelCatalog.mockResolvedValue({ ids: ['circle-p0-sso-mock'], names: {} });
+    const req = createAgentReq({ conversationId: 'new', chatProjectId: foreignProjectId });
+    const option = await run(req);
+    expect(getOrCreateChatProjectByName).not.toHaveBeenCalled();
+    expect(option.chatProjectId).toBeUndefined();
+    expect(req.body.chatProjectId).toBeUndefined();
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['the gateway', () => mockModelCatalog.mockRejectedValue(new Error('down'))],
+    ['project creation', () => getOrCreateChatProjectByName.mockRejectedValue(new Error('db'))],
+  ])('proceeds without a project when %s fails', async (_label, fail) => {
+    fail();
+    const req = createAgentReq({ conversationId: 'new', chatProjectId: foreignProjectId });
+    const option = await run(req);
+    expect(option.chatProjectId).toBeUndefined();
+    expect(req.body.chatProjectId).toBeUndefined();
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('hello');
   });
 });

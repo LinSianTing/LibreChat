@@ -17,6 +17,7 @@ export enum QueryKeys {
   user = 'user',
   name = 'name', // user key name
   models = 'models',
+  openschoolModelNames = 'openschoolModelNames',
   balance = 'balance',
   endpoints = 'endpoints',
   tokenConfig = 'tokenConfig',
