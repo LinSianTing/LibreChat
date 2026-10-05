@@ -19,10 +19,13 @@ import type {
 } from 'librechat-data-provider';
 import type { ProviderIconResolution } from './useProviderIcon';
 import type { Endpoint } from '~/common';
+import { useGetEndpointsQuery, useOpenSchoolModelNamesQuery } from '~/data-provider';
 import { useHasAccess, useShowMarketplace } from '~/hooks';
 import { resolveProviderIcon } from './useProviderIcon';
-import { useGetEndpointsQuery } from '~/data-provider';
 import { mapEndpoints } from '~/utils';
+
+/** The single custom endpoint whose model ids are OpenSchool circles. */
+export const OPENSCHOOL_ENDPOINT = 'OpenSchool';
 
 const defaultInterface = getConfigDefaults().interface;
 
@@ -69,6 +72,10 @@ export const useEndpoints = ({
   startupConfig: TStartupConfig | undefined;
 }) => {
   const modelsQuery = useGetModelsQuery();
+  const hasOpenSchoolModels = (modelsQuery.data?.[OPENSCHOOL_ENDPOINT]?.length ?? 0) > 0;
+  const { data: openschoolModelNames } = useOpenSchoolModelNamesQuery({
+    enabled: hasOpenSchoolModels,
+  });
   const { data: endpoints = [] } = useGetEndpointsQuery({ select: mapEndpoints });
   const interfaceConfig = startupConfig?.interface ?? defaultInterface;
   const includedEndpoints = useMemo(
@@ -210,6 +217,9 @@ export const useEndpoints = ({
           name: model,
           isGlobal: false,
         }));
+        if ((ep as string) === OPENSCHOOL_ENDPOINT && openschoolModelNames) {
+          result.modelNames = openschoolModelNames;
+        }
       }
 
       acc.push(result);
@@ -222,6 +232,7 @@ export const useEndpoints = ({
     endpointsConfig,
     filteredEndpoints,
     modelsQuery.data,
+    openschoolModelNames,
     showAgentMarketplace,
   ]);
 

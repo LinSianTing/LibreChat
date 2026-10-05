@@ -12,6 +12,10 @@ import SpecIcon from '~/components/Chat/Menus/Endpoints/components/SpecIcon';
 import { Endpoint, SelectedValues } from '~/common';
 import { getSpecAgentAvatarURL } from '~/utils';
 
+/** Trusted display name for a plain model id, falling back to the raw id. */
+export const getModelLabel = (endpoint: Pick<Endpoint, 'modelNames'>, model: string): string =>
+  endpoint.modelNames?.[model] || model;
+
 export function filterItems<
   T extends {
     label: string;
@@ -21,6 +25,7 @@ export function filterItems<
     models?: Array<{ name: string; isGlobal?: boolean }>;
     searchAliases?: string[];
     showMarketplace?: boolean;
+    modelNames?: Record<string, string>;
   },
 >(
   items: T[],
@@ -57,6 +62,10 @@ export function filterItems<
     if (item.models && item.models.length > 0) {
       return item.models.some((modelId) => {
         if (modelId.name.toLowerCase().includes(searchTermLower)) {
+          return true;
+        }
+
+        if (item.modelNames?.[modelId.name]?.toLowerCase().includes(searchTermLower)) {
           return true;
         }
 
@@ -230,7 +239,7 @@ export const getDisplayValue = ({
       return endpoint.assistantNames[selectedValues.model];
     }
 
-    return selectedValues.model;
+    return getModelLabel(endpoint, selectedValues.model);
   }
 
   if (selectedValues.endpoint) {

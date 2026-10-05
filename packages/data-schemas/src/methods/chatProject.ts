@@ -62,6 +62,15 @@ export interface ChatProjectMethods {
     projectId: string | null,
   ): Promise<AssignConversationToProjectResult | null>;
   refreshChatProjectStats(user: string, projectId: string): Promise<IChatProject | null>;
+  /** Exact, case-sensitive match on the trimmed name, scoped to `user`. */
+  findChatProjectByName(user: string, name: string): Promise<IChatProject | null>;
+  /**
+   * Finds the user's project with exactly this (trimmed) name, creating it when missing.
+   * Concurrent calls for the same `user + name` in this process share one in-flight promise,
+   * so two simultaneous first chats do not create duplicates. Separate processes (multiple
+   * Chat instances) can still race; there is intentionally no unique index on `user + name`.
+   */
+  getOrCreateChatProjectByName(user: string, name: string): Promise<IChatProject>;
 }
 
 type ProjectCursor = {
@@ -525,6 +534,49 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
     return await refreshChatProjectStatsForUser(mongoose, user, projectId);
   }
 
+  function normalizeProjectName(name: string): string {
+    return typeof name === 'string' ? name.trim().slice(0, MAX_CHAT_PROJECT_NAME_LENGTH) : '';
+  }
+
+  async function findChatProjectByName(user: string, name: string): Promise<IChatProject | null> {
+    const normalized = normalizeProjectName(name);
+    if (!user || !normalized) {
+      return null;
+    }
+    const ChatProject = mongoose.models.ChatProject as Model<IChatProjectDocument>;
+    return await ChatProject.findOne({ user, name: { $eq: normalized } })
+      .sort({ createdAt: 1, _id: 1 })
+      .lean<IChatProject>();
+  }
+
+  /** In-flight get-or-create calls keyed by user + name (process-local). */
+  const pendingByName = new Map<string, Promise<IChatProject>>();
+
+  async function getOrCreateChatProjectByName(user: string, name: string): Promise<IChatProject> {
+    const normalized = normalizeProjectName(name);
+    if (!user || !normalized) {
+      throw new Error('Project name is required');
+    }
+    const key = JSON.stringify([user, normalized]);
+    const pending = pendingByName.get(key);
+    if (pending) {
+      return await pending;
+    }
+    const promise = (async () => {
+      const existing = await findChatProjectByName(user, normalized);
+      if (existing) {
+        return existing;
+      }
+      return await createChatProject(user, { name: normalized });
+    })();
+    pendingByName.set(key, promise);
+    try {
+      return await promise;
+    } finally {
+      pendingByName.delete(key);
+    }
+  }
+
   return {
     createChatProject,
     getChatProject,
@@ -533,5 +585,7 @@ export function createChatProjectMethods(mongoose: typeof import('mongoose')): C
     deleteChatProject,
     assignConversationToProject,
     refreshChatProjectStats,
+    findChatProjectByName,
+    getOrCreateChatProjectByName,
   };
 }

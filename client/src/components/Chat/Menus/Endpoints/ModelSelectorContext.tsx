@@ -19,7 +19,7 @@ import { useAgentsMapContext, useAssistantsMapContext, useLiveAnnouncer } from '
 import { useGetEndpointsQuery, useListAgentsQuery } from '~/data-provider';
 import { useModelSelectorChatContext } from './ModelSelectorChatContext';
 import useSelectMention from '~/hooks/Input/useSelectMention';
-import { filterItems } from './utils';
+import { filterItems, getModelLabel } from './utils';
 
 type ModelSelectorContextType = {
   // State
@@ -128,7 +128,7 @@ export function ModelSelectorProvider({ children, startupConfig }: ModelSelector
         return endpoint.assistantNames?.[model] ?? model;
       }
 
-      return model;
+      return getModelLabel(endpoint, model);
     },
     [agentsMap],
   );

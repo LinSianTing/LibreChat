@@ -74,6 +74,8 @@ function prepareSearchResults(
             endpoint.assistantNames[model.name]
           ) {
             modelName = endpoint.assistantNames[model.name];
+          } else if (endpoint.modelNames?.[model.name]) {
+            modelName = endpoint.modelNames[model.name];
           }
           return modelName.toLowerCase().includes(lowerQuery);
         });
