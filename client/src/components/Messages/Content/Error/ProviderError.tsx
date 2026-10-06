@@ -1,6 +1,12 @@
 import { ErrorTypes, stripLangChainTroubleshootingUrl } from 'librechat-data-provider';
 import type { ErrorPayload, ErrorRendererProps, UnclassifiedErrorProps } from './parts';
 import {
+  OpenSchoolReturnLink,
+  OpenSchoolGatewayError,
+  useOpenSchoolReturnUrl,
+  isOpenSchoolGatewayMessage,
+} from './openschoolReturn';
+import {
   ErrorBody,
   ErrorDetails,
   ErrorWithDetail,
@@ -8,7 +14,6 @@ import {
   readString,
   useErrorEndpoint,
 } from './parts';
-import { OpenSchoolReturnLink, useOpenSchoolReturnUrl } from './openschoolReturn';
 import { extractJson } from '~/utils/json';
 import { useLocalize } from '~/hooks';
 
@@ -105,7 +110,7 @@ export default function ProviderError({ json, message }: ErrorRendererProps) {
 /** Fallback for provider prose and payloads whose error code has no localized renderer. */
 export function UnclassifiedError({ json, text, message }: UnclassifiedErrorProps) {
   const localize = useLocalize();
-  const { provider } = useErrorEndpoint(message);
+  const { provider, endpoint } = useErrorEndpoint(message);
   const jsonString = extractJson(text);
   const payloadProse =
     readProviderError(json) ?? readString(json, 'message') ?? readString(json, 'info');
@@ -123,6 +128,11 @@ export function UnclassifiedError({ json, text, message }: UnclassifiedErrorProp
       : localize('com_error_upstream_model');
   const headline = prose == null && json != null ? localize('com_error_unknown') : providerHeadline;
   const returnUrl = useOpenSchoolReturnUrl(prose);
+
+  /** OpenSchool fork: the gateway's own refusal stands alone (see `OpenSchoolGatewayError`). */
+  if (isOpenSchoolGatewayMessage(endpoint, prose)) {
+    return <OpenSchoolGatewayError detail={prose} returnUrl={returnUrl} />;
+  }
 
   return (
     <ErrorWithDetail
