@@ -19,6 +19,7 @@ import { useAgentsMapContext, useAssistantsMapContext, useLiveAnnouncer } from '
 import { useGetEndpointsQuery, useListAgentsQuery } from '~/data-provider';
 import { useModelSelectorChatContext } from './ModelSelectorChatContext';
 import useSelectMention from '~/hooks/Input/useSelectMention';
+import useOpenSchoolModel from './useOpenSchoolModel';
 import { filterItems, getModelLabel } from './utils';
 
 type ModelSelectorContextType = {
@@ -117,6 +118,8 @@ export function ModelSelectorProvider({ children, startupConfig }: ModelSelector
     startupConfig,
     endpointsConfig,
   });
+
+  useOpenSchoolModel({ endpoint, model, mappedEndpoints });
 
   const getModelDisplayName = useCallback(
     (endpoint: Endpoint, model: string): string => {

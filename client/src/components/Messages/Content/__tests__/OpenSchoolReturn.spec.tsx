@@ -122,6 +122,78 @@ describe('OpenSchool return link', () => {
   });
 });
 
+describe('OpenSchool gateway refusal', () => {
+  const openschoolRow = {
+    endpoint: 'OpenSchool',
+    model: 'circle-openschool-public',
+    createdAt: new Date('2026-10-06T08:00:00.000Z'),
+  } as unknown as TMessage;
+  const explanation = '你目前沒有使用這個 AI 的資格，請回開放學校確認共學圈。';
+
+  function renderRow(text: string, row: TMessage) {
+    const chat = { conversation: { conversationId: 'c1' } as Partial<TConversation> };
+    return render(
+      <ChatContext.Provider value={chat as unknown as React.ContextType<typeof ChatContext>}>
+        <Error text={text} message={row} />
+      </ChatContext.Provider>,
+    );
+  }
+
+  beforeEach(() => {
+    mockStartupData = { openschoolReturnUrl: RETURN_URL };
+  });
+
+  it('shows only the gateway message for an upstream 403 on the OpenSchool endpoint', () => {
+    renderRow(
+      'The model provider could not complete this request.\n' + upstream(explanation),
+      openschoolRow,
+    );
+    expect(screen.getByText(explanation)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('could not complete this request');
+    expect(document.body.textContent).not.toContain('403');
+  });
+
+  it('keeps the return link next to the gateway message', () => {
+    renderRow(upstream(refusal(`${RETURN_URL}?circle=light`)), openschoolRow);
+    expect(document.body.textContent).not.toContain('could not complete this request');
+    expect(screen.getByRole('link', { name: 'Back to Open School circles' })).toHaveAttribute(
+      'href',
+      `${RETURN_URL}?circle=light`,
+    );
+  });
+
+  it('shows only the gateway message for unclassified provider prose', () => {
+    renderRow(
+      JSON.stringify({ error: { message: explanation, type: 'permission_error' } }),
+      openschoolRow,
+    );
+    expect(screen.getByText(explanation)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('could not complete this request');
+  });
+
+  it('falls back to the generic copy when the gateway gave no message', () => {
+    renderRow(
+      JSON.stringify({ type: ErrorTypes.UPSTREAM_MODEL_ERROR, status: 403 }),
+      openschoolRow,
+    );
+    expect(
+      screen.getByText('The model provider could not complete this request (status 403).'),
+    ).toBeInTheDocument();
+  });
+
+  it('leaves other endpoints with the generic headline', () => {
+    renderRow(upstream(explanation), {
+      ...openschoolRow,
+      endpoint: 'openAI',
+      model: 'gpt-4o',
+    } as unknown as TMessage);
+    expect(
+      screen.getByText('The model provider could not complete this request (status 403).'),
+    ).toBeInTheDocument();
+    expect(screen.getByText(explanation)).toBeInTheDocument();
+  });
+});
+
 describe('findOpenSchoolReturnUrl', () => {
   it('rebuilds the link from the configured URL', () => {
     expect(findOpenSchoolReturnUrl(`see ${RETURN_URL}?circle=pine。`, RETURN_URL)).toBe(

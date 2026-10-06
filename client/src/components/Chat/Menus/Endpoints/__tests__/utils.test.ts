@@ -1,6 +1,6 @@
 import type { useLocalize } from '~/hooks';
 import type { Endpoint } from '~/common';
-import { filterItems, getDisplayValue, getModelLabel } from '../utils';
+import { filterItems, getDisplayValue, getModelLabel, pickAllowedOpenSchoolModel } from '../utils';
 
 const agentsEndpoint: Endpoint = {
   value: 'agents',
@@ -80,5 +80,27 @@ describe('OpenSchool model display names', () => {
   it('finds an endpoint by a model display name', () => {
     expect(filterItems([openschool], 'synthetic', undefined, undefined)).toEqual([openschool]);
     expect(filterItems([openschool], 'no such circle', undefined, undefined)).toEqual([]);
+  });
+});
+
+describe('pickAllowedOpenSchoolModel', () => {
+  const allowed = ['circle-openschool-public', 'circle-teachers'];
+
+  it('switches the config default to the first allowed model', () => {
+    expect(pickAllowedOpenSchoolModel('personal', allowed)).toBe('circle-openschool-public');
+  });
+
+  it('switches a missing model to the first allowed model', () => {
+    expect(pickAllowedOpenSchoolModel(null, allowed)).toBe('circle-openschool-public');
+    expect(pickAllowedOpenSchoolModel(undefined, allowed)).toBe('circle-openschool-public');
+  });
+
+  it('keeps an allowed choice, including one from the model query param', () => {
+    expect(pickAllowedOpenSchoolModel('circle-teachers', allowed)).toBeNull();
+    expect(pickAllowedOpenSchoolModel('personal', ['personal', ...allowed])).toBeNull();
+  });
+
+  it('changes nothing while the allowed list is empty', () => {
+    expect(pickAllowedOpenSchoolModel('personal', [])).toBeNull();
   });
 });

@@ -9,7 +9,11 @@
 import { useContext } from 'react';
 import { useGetStartupConfig } from '~/data-provider';
 import { ChatContext } from '~/Providers/ChatContext';
+import { ErrorActions, ErrorBody } from './parts';
 import { useLocalize } from '~/hooks';
+
+/** The custom endpoint the OpenSchool AI gateway serves (same id as `useEndpoints`). */
+export const OPENSCHOOL_ENDPOINT = 'OpenSchool';
 
 /** Circle codes are lowercase letters, digits and hyphens (OpenSchool validates them the same way). */
 const CIRCLE_QUERY = /^\?circle=[a-z0-9-]{1,64}$/;
@@ -86,3 +90,36 @@ export function OpenSchoolReturnLink({ href }: { href: string }) {
     </a>
   );
 }
+
+/**
+ * A refusal from the OpenSchool gateway already explains itself in the reader's language (no
+ * permission, no quota left, ...). Leading it with LibreChat's English "could not complete this
+ * request (status 403)" made readers think Chat was broken, so for this endpoint the gateway's
+ * own message is the whole error. Callers keep the generic copy when there is no message.
+ */
+export function OpenSchoolGatewayError({
+  detail,
+  returnUrl,
+}: {
+  detail: string;
+  returnUrl?: string;
+}) {
+  return (
+    <ErrorBody>
+      <div className="whitespace-pre-wrap" data-testid="openschool-gateway-error">
+        {detail}
+      </div>
+      {returnUrl != null && (
+        <ErrorActions>
+          <OpenSchoolReturnLink href={returnUrl} />
+        </ErrorActions>
+      )}
+    </ErrorBody>
+  );
+}
+
+/** Whether the failure came from the OpenSchool endpoint and carries the gateway's own message. */
+export const isOpenSchoolGatewayMessage = (
+  endpoint: string | undefined,
+  detail: string | undefined,
+): detail is string => endpoint === OPENSCHOOL_ENDPOINT && detail != null && detail.trim() !== '';

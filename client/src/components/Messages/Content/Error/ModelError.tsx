@@ -5,13 +5,18 @@ import {
 } from 'librechat-data-provider';
 import type { ErrorRendererProps } from './parts';
 import {
+  OpenSchoolReturnLink,
+  OpenSchoolGatewayError,
+  useOpenSchoolReturnUrl,
+  isOpenSchoolGatewayMessage,
+} from './openschoolReturn';
+import {
   ErrorWithDetail,
   getProviderName,
   readNumber,
   readString,
   useErrorEndpoint,
 } from './parts';
-import { OpenSchoolReturnLink, useOpenSchoolReturnUrl } from './openschoolReturn';
 import { codeWorkspaceErrorKeys } from '~/utils/errors';
 import { useLocalize } from '~/hooks';
 
@@ -22,7 +27,7 @@ import { useLocalize } from '~/hooks';
  */
 export default function ModelError({ json, message }: ErrorRendererProps) {
   const localize = useLocalize();
-  const { provider: conversationProvider } = useErrorEndpoint(message);
+  const { provider: conversationProvider, endpoint: errorEndpoint } = useErrorEndpoint(message);
   const errorKey = readString(json, 'code') ?? readString(json, 'type');
   const info = readString(json, 'info');
   /** `info` is an endpoint id on these payloads; the conversation's own provider is the fallback. */
@@ -65,6 +70,10 @@ export default function ModelError({ json, message }: ErrorRendererProps) {
    * text. The provider's own message rides along in `message` when the deployment lets provider
    * text through: a gateway or proxy rejection explains itself there, and nothing generic can.
    */
+  /** OpenSchool fork: the gateway's own refusal stands alone (see `OpenSchoolGatewayError`). */
+  if (isOpenSchoolGatewayMessage(errorEndpoint, detail)) {
+    return <OpenSchoolGatewayError detail={detail} returnUrl={returnUrl} />;
+  }
   const status = readNumber(json, 'status');
   const headline =
     status != null
