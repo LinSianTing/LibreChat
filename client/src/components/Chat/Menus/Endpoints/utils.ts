@@ -16,6 +16,23 @@ import { getSpecAgentAvatarURL } from '~/utils';
 export const getModelLabel = (endpoint: Pick<Endpoint, 'modelNames'>, model: string): string =>
   endpoint.modelNames?.[model] || model;
 
+/**
+ * OpenSchool fork: the model the OpenSchool endpoint should switch to, or null to keep the current
+ * one. `allowed` is the reader's own model list from `/api/openschool/model-names` (gateway order).
+ * A new chat otherwise falls back to the config default (`personal`), which most members may not
+ * use, and the first message is refused. An allowed choice (picked, or from `?model=`) is kept; an
+ * unknown or empty list changes nothing.
+ */
+export const pickAllowedOpenSchoolModel = (
+  model: string | null | undefined,
+  allowed: readonly string[],
+): string | null => {
+  if (allowed.length === 0 || (model != null && allowed.includes(model))) {
+    return null;
+  }
+  return allowed[0];
+};
+
 export function filterItems<
   T extends {
     label: string;
