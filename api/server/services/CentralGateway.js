@@ -1,3 +1,4 @@
+const { parseCentralModelCatalog, resolveCentralModelScope } = require('@librechat/api');
 const centralSSO = require('./LocalCentralSSO');
 const trustProfiles = require('./CentralTrustProfile');
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
@@ -14,7 +15,7 @@ function identityHeaders(user) {
   };
 }
 
-/** Validated `{ ids, names }` for the current user from the central gateway. */
+/** Validated `{ ids, names, circleIds }` for the current user from the central gateway. */
 async function modelCatalog(user) {
   const headers = identityHeaders(user);
   if (!centralSSO.enabled() || !process.env.OPENSCHOOL_GATEWAY_KEY) {
@@ -34,44 +35,12 @@ async function modelCatalog(user) {
     error.status = [401, 403].includes(response.status) ? response.status : 503;
     throw error;
   }
-  const data = await response.json();
-  if (
-    data.object !== 'list' ||
-    !Array.isArray(data.data) ||
-    data.data.length > 1000 ||
-    data.data.some(
-      (entry) =>
-        typeof entry.id !== 'string' || !/^(personal|circle-[a-z0-9-]{1,64})$/.test(entry.id),
-    )
-  ) {
-    throw new Error('Invalid central model response');
-  }
-  const ids = [...new Set(data.data.map((entry) => entry.id))];
-  /** @type {Record<string, string>} */
-  const names = {};
-  for (const entry of data.data) {
-    const name = trustedName(entry.name);
-    if (name != null && !Object.hasOwn(names, entry.id)) {
-      names[entry.id] = name;
-    }
-  }
-  return { ids, names };
+  return parseCentralModelCatalog(await response.json());
 }
 
-/**
- * Display names come from the gateway (server-to-server, per user). A bad name is
- * omitted rather than failing the model list; the raw id remains the fallback label.
- * @param {unknown} value
- * @returns {string | null}
- */
-function trustedName(value) {
-  if (typeof value !== 'string') return null;
-  const name = value.trim();
-  // eslint-disable-next-line no-control-regex -- Display names must not carry control characters.
-  if (name.length < 1 || name.length > 100 || /[\u0000-\u001f\u007f-\u009f]/.test(name)) {
-    return null;
-  }
-  return name;
+/** Fresh per-user eligibility; accepts a model ID, never a caller-supplied circle or catalog. */
+async function modelScope(user, model) {
+  return resolveCentralModelScope(await modelCatalog(user), model);
 }
 
 async function models(user) {
@@ -79,4 +48,4 @@ async function models(user) {
   return { OpenSchool: ids };
 }
 
-module.exports = { identityHeaders, models, modelCatalog };
+module.exports = { identityHeaders, models, modelCatalog, modelScope };
