@@ -16,6 +16,8 @@ interface BindingRow {
 }
 
 export interface MongoBindingOptions {
+  /** Trusted startup configuration only. No autodetection, request override or fallback. */
+  topology: { mode: 'standalone' } | { mode: 'replica-set'; setName: string };
   /** Server-selected deployment + tenant namespace; never browser or project input. */
   namespace: string;
   /** Injected deadline; controller integration must supply configured values. */
@@ -68,8 +70,11 @@ function duplicateKey(error: unknown): boolean {
  *
  * Mongo's mandatory unique _id index is the ONLY required index: JSON tuple encoding is
  * collision-free and has no asynchronous secondary-index build window. No TTL or delete API.
- * Requires an unsharded collection on a replica set, journaled majority writes and primary
- * linearizable reads; unsupported topology/errors fail closed. Connection selection/socket
+ * Explicit standalone mode uses primary/local reads and journaled w:1 single-document writes.
+ * It protects normal single-server ordering, NOT multinode failover or backup restoration.
+ * Replica mode retains journaled majority writes and primary/linearizable reads. Both require
+ * an unsharded collection; hello is checked before each operation, without fallback. The caller
+ * must keep the trusted connection/topology stable (hello is not a lease). Connection selection/socket
  * deadlines remain the connection owner's responsibility in addition to operation timeoutMS.
  *
  * Tombstones cannot be revived through this adapter. Direct DB writes, collection drops,
@@ -81,13 +86,18 @@ export function createMongoBindingStore(
   options: MongoBindingOptions,
 ): MongoBindingStore {
   const { namespace, timeoutMS } = options;
+  const mode = options.topology?.mode;
+  const setName = options.topology?.mode === 'replica-set' ? options.topology.setName : undefined;
   if (
     typeof namespace !== 'string' ||
     !namespace.trim() ||
     namespace !== namespace.trim() ||
     namespace.length > 200 ||
     !Number.isSafeInteger(timeoutMS) ||
-    timeoutMS <= 0
+    timeoutMS <= 0 ||
+    (mode !== 'standalone' && mode !== 'replica-set') ||
+    (mode === 'replica-set' &&
+      (typeof setName !== 'string' || !setName.trim() || setName !== setName.trim()))
   ) {
     throw new Error('Invalid binding store configuration');
   }
@@ -108,6 +118,7 @@ export function createMongoBindingStore(
       versionKey: false,
       strict: 'throw',
       bufferCommands: false,
+      autoCreate: false,
       autoIndex: false,
       collation: { locale: 'simple' },
     },
@@ -120,8 +131,40 @@ export function createMongoBindingStore(
     runValidators: true,
     maxTimeMS: timeoutMS,
     timeoutMS,
-    writeConcern: { w: 'majority' as const, j: true, wtimeout: timeoutMS },
+    writeConcern: {
+      w: mode === 'standalone' ? 1 : ('majority' as const),
+      j: true,
+      wtimeout: timeoutMS,
+    },
   };
+
+  async function checkTopology(): Promise<void> {
+    if (connection.readyState !== 1 || !connection.db) {
+      throw new Error('Binding connection unavailable');
+    }
+    const hello = await connection.db.command(
+      { hello: 1, maxTimeMS: timeoutMS },
+      { readPreference: 'primary', timeoutMS },
+    );
+    if (
+      hello.ok !== 1 ||
+      hello.isWritablePrimary !== true ||
+      hello.msg != null ||
+      hello.serviceId != null ||
+      hello.isreplicaset === true
+    ) {
+      throw new Error('Unsupported binding topology');
+    }
+    if (mode === 'replica-set') {
+      if (hello.setName !== setName) {
+        throw new Error('Binding replica set mismatch');
+      }
+      return;
+    }
+    if ('setName' in hello || 'hosts' in hello || 'passives' in hello || 'arbiters' in hello) {
+      throw new Error('Binding standalone topology mismatch');
+    }
+  }
 
   function identity(
     key: BindingKey,
@@ -140,9 +183,10 @@ export function createMongoBindingStore(
   async function read(key: BindingKey): Promise<BindingRead> {
     try {
       const filter = identity(key);
+      await checkTopology();
       const row = await Model.findById(filter._id)
         .read('primary')
-        .readConcern('linearizable')
+        .readConcern(mode === 'standalone' ? 'local' : 'linearizable')
         .setOptions({ maxTimeMS: timeoutMS, timeoutMS })
         .lean()
         .exec();
@@ -193,6 +237,7 @@ export function createMongoBindingStore(
       model: binding.scope.model,
     };
     try {
+      await checkTopology();
       await Model.updateOne({ _id: row._id }, { $setOnInsert: row }, writeOptions).exec();
     } catch (error) {
       if (!duplicateKey(error)) {
@@ -215,6 +260,7 @@ export function createMongoBindingStore(
     // Concurrent first insert may win the upsert race; retry once to retire that winner.
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
+        await checkTopology();
         await Model.updateOne(
           { _id: row._id },
           {
