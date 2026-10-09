@@ -364,7 +364,9 @@ async function findOneAndMergeMessageProvenance(
         return message;
       }
     } catch (err) {
-      if (!isDuplicateKeyError(err) || !options.upsert) {
+      // A route-scoped identity cannot retry against another conversation. The caller's
+      // duplicate handler reads back and accepts only the same conversation's winner.
+      if (!isDuplicateKeyError(err) || !options.upsert || identity.conversationId != null) {
         throw err;
       }
     }
@@ -657,7 +659,7 @@ export interface MessageMethods {
       newMessageId?: string;
       contextMeta?: IMessage['contextMeta'] | null;
     },
-    metadata?: { context?: string },
+    metadata?: { context?: string; conversationIdFence?: string },
   ): Promise<IMessage | null | undefined>;
   /**
    * Reads the references a trace viewer needs for one of the user's
@@ -923,7 +925,7 @@ export function createMessageMethods(mongoose: typeof import('mongoose')): Messa
       /** `null` unsets a previously stored value; omission leaves it in place. */
       contextMeta?: IMessage['contextMeta'] | null;
     },
-    metadata?: { context?: string },
+    metadata?: { context?: string; conversationIdFence?: string },
   ) {
     if (!userId) {
       throw new Error('User not authenticated');
@@ -1025,17 +1027,24 @@ export function createMessageMethods(mongoose: typeof import('mongoose')): Messa
         params.isCreatedByUser === false && params.isUserSubmitted === undefined;
       const hasProvenance =
         userSubmittedPaths.length > 0 || userSubmittedMessageFieldPaths.length > 0;
+      const messageFilter = {
+        messageId: params.messageId,
+        user: userId,
+        ...(metadata?.conversationIdFence != null && {
+          conversationId: metadata.conversationIdFence,
+        }),
+      };
       const message = hasProvenance
         ? await findOneAndMergeMessageProvenance(
             Message,
-            { messageId: params.messageId, user: userId },
+            messageFilter,
             update,
             userSubmittedPaths,
             userSubmittedMessageFieldPaths,
             { upsert: true, stampModelOutputOnInsert, unsetContextMeta, retentionOnInsert },
           )
         : await Message.findOneAndUpdate(
-            { messageId: params.messageId, user: userId },
+            messageFilter,
             buildMessageSaveUpdate(update, {
               stampModelOutputOnInsert,
               unsetContextMeta,
@@ -1100,6 +1109,11 @@ export function createMessageMethods(mongoose: typeof import('mongoose')): Messa
           });
 
           if (existingMessage) {
+            if (
+              metadata?.conversationIdFence != null &&
+              existingMessage.conversationId !== metadata.conversationIdFence
+            )
+              return undefined;
             return existingMessage.toObject();
           }
 

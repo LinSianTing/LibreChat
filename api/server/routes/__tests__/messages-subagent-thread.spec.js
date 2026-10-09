@@ -1,5 +1,14 @@
 const express = require('express');
 const request = require('supertest');
+const { createCircleExecution } = require('../../../../packages/api/src/openschool/execution');
+let mockCircleRuntime = createCircleExecution({ enabled: false });
+let mockCircleUser;
+jest.mock('~/server/services/CircleExecution', () => ({
+  mutation:
+    (controller) =>
+    (...args) =>
+      mockCircleRuntime.mutation(controller)(...args),
+}));
 
 const mockIsSubagentThreadWriteBlocked = jest.fn();
 
@@ -77,13 +86,15 @@ describe('message mutation policy for durable subagent threads', () => {
     app = express();
     app.use(express.json());
     app.use((req, _res, next) => {
-      req.user = { id: 'owner-user', tenantId: 'tenant-a' };
+      req.user = mockCircleUser ?? { id: 'owner-user', tenantId: 'tenant-a' };
       next();
     });
     app.use('/api/messages', messagesRouter);
   });
 
   beforeEach(() => {
+    mockCircleRuntime = createCircleExecution({ enabled: false });
+    mockCircleUser = undefined;
     jest.clearAllMocks();
     mockIsSubagentThreadWriteBlocked.mockResolvedValue(true);
     db.getMessage.mockResolvedValue({
@@ -100,6 +111,111 @@ describe('message mutation policy for durable subagent threads', () => {
         content: [],
       },
     ]);
+  });
+
+  it.each(['circle', 'endpoint', 'deleted'])(
+    'independent save rejects %s before message or conversation write',
+    async (kind) => {
+      const conversationId = '33333333-3333-4333-8333-333333333333';
+      mockCircleUser = {
+        id: '111111111111111111111111',
+        memberId: '22222222-2222-4222-8222-222222222222',
+      };
+      const scope = {
+        endpoint: 'OpenSchool',
+        model: 'circle-a',
+        circleId: '44444444-4444-4444-8444-444444444444',
+      };
+      mockCircleRuntime = createCircleExecution({
+        enabled: true,
+        presence: async () => 'owned',
+        report: jest.fn(),
+        store: () => ({
+          read: async () =>
+            kind === 'deleted'
+              ? { kind: 'tombstone', key: { chatOwnerId: mockCircleUser.id, conversationId } }
+              : {
+                  kind: 'bound',
+                  binding: {
+                    version: 1,
+                    key: { chatOwnerId: mockCircleUser.id, conversationId },
+                    memberId: mockCircleUser.memberId,
+                    scope,
+                  },
+                },
+        }),
+        scope: async () => ({
+          kind: 'resolved',
+          value: { ...scope, circleId: '55555555-5555-4555-8555-555555555555' },
+        }),
+      });
+      const result = await request(app)
+        .post(`/api/messages/${conversationId}`)
+        .send({
+          messageId: 'synthetic',
+          endpoint: kind === 'endpoint' ? 'agents' : 'OpenSchool',
+          model: 'circle-b',
+        });
+      expect(result.status).toBe(409);
+      expect(db.saveMessage).not.toHaveBeenCalled();
+      expect(db.saveConvo).not.toHaveBeenCalled();
+    },
+  );
+
+  it('independent admitted save uses atomic message identity fence and never upserts conversation', async () => {
+    const conversationId = '33333333-3333-4333-8333-333333333333';
+    mockCircleUser = {
+      id: '111111111111111111111111',
+      memberId: '22222222-2222-4222-8222-222222222222',
+    };
+    const scope = {
+      endpoint: 'OpenSchool',
+      model: 'circle-a',
+      circleId: '44444444-4444-4444-8444-444444444444',
+    };
+    const release = jest.fn();
+    mockCircleRuntime = createCircleExecution({
+      enabled: true,
+      presence: async () => 'owned',
+      report: jest.fn(),
+      store: () => ({
+        read: async () => ({
+          kind: 'bound',
+          binding: {
+            version: 1,
+            key: { chatOwnerId: mockCircleUser.id, conversationId },
+            memberId: mockCircleUser.memberId,
+            scope,
+          },
+        }),
+        acquire: async () => true,
+        release,
+      }),
+      scope: async () => ({ kind: 'resolved', value: scope }),
+    });
+    mockIsSubagentThreadWriteBlocked.mockResolvedValue(false);
+    db.saveMessage.mockResolvedValue({
+      conversationId,
+      messageId: 'synthetic',
+      endpoint: 'OpenSchool',
+      model: 'circle-a',
+    });
+    db.saveConvo.mockResolvedValue({ conversationId });
+    const result = await request(app)
+      .post(`/api/messages/${conversationId}`)
+      .send({ messageId: 'synthetic', endpoint: 'OpenSchool', model: 'circle-a' });
+    expect(result.status).toBe(201);
+    expect(db.saveMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ conversationIdFence: conversationId }),
+    );
+    expect(db.saveConvo).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ noUpsert: true }),
+    );
+    expect(release).toHaveBeenCalledTimes(1);
   });
 
   it('blocks every transcript-affecting message route through one shared policy', async () => {

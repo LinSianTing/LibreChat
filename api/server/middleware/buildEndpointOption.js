@@ -16,6 +16,7 @@ const {
   getDefaultParamsEndpoint,
 } = require('librechat-data-provider');
 const { applyCircleProject } = require('~/server/services/CentralCircleProject');
+const circleExecution = require('~/server/services/CircleExecution');
 const azureAssistants = require('~/server/services/Endpoints/azureAssistants');
 const assistants = require('~/server/services/Endpoints/assistants');
 const { getEndpointsConfig } = require('~/server/services/Config');
@@ -172,29 +173,36 @@ async function buildEndpointOption(req, res, next) {
     }
   }
 
-  parsedBody = await applyCircleProject(req, parsedBody);
+  return circleExecution.beforeOptions(
+    req,
+    res,
+    { endpoint, model: parsedBody.model },
+    async () => {
+      parsedBody = await applyCircleProject(req, parsedBody);
 
-  try {
-    const builder = isAgents
-      ? (...args) => buildFunction[EModelEndpoint.agents](req, ...args)
-      : buildFunction[endpointType ?? endpoint];
+      try {
+        const builder = isAgents
+          ? (...args) => buildFunction[EModelEndpoint.agents](req, ...args)
+          : buildFunction[endpointType ?? endpoint];
 
-    // TODO: use object params
-    req.body = req.body || {}; // Express 5: ensure req.body exists
-    req.body.endpointOption = await builder(endpoint, parsedBody, endpointType);
+        // TODO: use object params
+        req.body = req.body || {}; // Express 5: ensure req.body exists
+        req.body.endpointOption = await builder(endpoint, parsedBody, endpointType);
 
-    if (req.body.files && !isAgents) {
-      req.body.endpointOption.attachments = updateFilesUsage(req.body.files, undefined, {
-        user: req.user.id,
-        tenantId: req.user.tenantId,
-      });
-    }
+        if (req.body.files && !isAgents) {
+          req.body.endpointOption.attachments = updateFilesUsage(req.body.files, undefined, {
+            user: req.user.id,
+            tenantId: req.user.tenantId,
+          });
+        }
 
-    next();
-  } catch (error) {
-    logger.error('Error building endpoint option', error);
-    return handleError(res, { text: 'Error building endpoint option' });
-  }
+        next();
+      } catch (error) {
+        logger.error('Error building endpoint option', error);
+        return handleError(res, { text: 'Error building endpoint option' });
+      }
+    },
+  );
 }
 
 module.exports = buildEndpointOption;

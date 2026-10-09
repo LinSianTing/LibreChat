@@ -1,3 +1,4 @@
+const circleExecution = require('~/server/services/CircleExecution');
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { logger, CLIENT_MESSAGE_SELECT, MEILI_SEARCH_LIMIT } = require('@librechat/data-schemas');
@@ -518,49 +519,57 @@ router.get('/:conversationId', prepareMessageRequestValidation, async (req, res)
   }
 });
 
-router.post('/:conversationId', storedMessageMutationMiddleware, async (req, res) => {
-  try {
-    if (await rejectSubagentThreadWrite(req, res, req.params.conversationId)) {
-      return;
+router.post(
+  '/:conversationId',
+  storedMessageMutationMiddleware,
+  circleExecution.mutation(async (req, res) => {
+    try {
+      if (await rejectSubagentThreadWrite(req, res, req.params.conversationId)) {
+        return;
+      }
+      /** Trace sampling fields are ownership claims only the server writes. */
+      const message = withoutTraceRefs({ ...req.body, conversationId: req.params.conversationId });
+      delete message.isUserSubmitted;
+      delete message.userSubmittedPaths;
+      delete message.userSubmittedMessageFieldPaths;
+      /** Server-private run state: a client-authored row must never seed a run's
+       * calibration or fading tiers, so the field only ever comes from the server. */
+      delete message.contextMeta;
+      const reqCtx = {
+        userId: req?.user?.id,
+        isTemporary: req.resolvedConversation?.isTemporary ?? req?.body?.isTemporary,
+        expiredAt: req.resolvedConversation?.expiredAt,
+        interfaceConfig: req?.config?.interfaceConfig,
+      };
+      const savedMessage = await db.saveMessage(
+        reqCtx,
+        { ...message, user: req.user.id, isUserSubmitted: true },
+        {
+          context: 'POST /api/messages/:conversationId',
+          conversationIdFence: req.params.conversationId,
+        },
+      );
+      if (!savedMessage) {
+        return res.status(400).json({ error: 'Message not saved' });
+      }
+      const conversationUpdate = {
+        conversationId: savedMessage.conversationId,
+        ...(message.endpoint !== undefined && { endpoint: savedMessage.endpoint }),
+        ...(message.model !== undefined && { model: savedMessage.model }),
+        ...(message.iconURL !== undefined && { iconURL: savedMessage.iconURL }),
+      };
+      await db.saveConvo(reqCtx, conversationUpdate, {
+        context: 'POST /api/messages/:conversationId',
+        noUpsert: true,
+        ...(savedMessage._id != null ? { appendMessageIds: [savedMessage._id] } : {}),
+      });
+      res.status(201).json(toClientMessage(savedMessage));
+    } catch (error) {
+      logger.error('Error saving message:', error);
+      res.status(500).json({ error: 'Internal server error' });
     }
-    /** Trace sampling fields are ownership claims only the server writes. */
-    const message = withoutTraceRefs({ ...req.body, conversationId: req.params.conversationId });
-    delete message.isUserSubmitted;
-    delete message.userSubmittedPaths;
-    delete message.userSubmittedMessageFieldPaths;
-    /** Server-private run state: a client-authored row must never seed a run's
-     * calibration or fading tiers, so the field only ever comes from the server. */
-    delete message.contextMeta;
-    const reqCtx = {
-      userId: req?.user?.id,
-      isTemporary: req.resolvedConversation?.isTemporary ?? req?.body?.isTemporary,
-      expiredAt: req.resolvedConversation?.expiredAt,
-      interfaceConfig: req?.config?.interfaceConfig,
-    };
-    const savedMessage = await db.saveMessage(
-      reqCtx,
-      { ...message, user: req.user.id, isUserSubmitted: true },
-      { context: 'POST /api/messages/:conversationId' },
-    );
-    if (!savedMessage) {
-      return res.status(400).json({ error: 'Message not saved' });
-    }
-    const conversationUpdate = {
-      conversationId: savedMessage.conversationId,
-      ...(message.endpoint !== undefined && { endpoint: savedMessage.endpoint }),
-      ...(message.model !== undefined && { model: savedMessage.model }),
-      ...(message.iconURL !== undefined && { iconURL: savedMessage.iconURL }),
-    };
-    await db.saveConvo(reqCtx, conversationUpdate, {
-      context: 'POST /api/messages/:conversationId',
-      ...(savedMessage._id != null ? { appendMessageIds: [savedMessage._id] } : {}),
-    });
-    res.status(201).json(toClientMessage(savedMessage));
-  } catch (error) {
-    logger.error('Error saving message:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+  }),
+);
 
 router.get('/:conversationId/:messageId', validateMessageReq, async (req, res) => {
   try {

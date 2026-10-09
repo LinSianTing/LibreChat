@@ -46,6 +46,7 @@ test('mounted adapter uses fixed validated local trust profile and isolated body
     OPENSCHOOL_CENTRAL_API_KEY: 'central-synthetic-12345678901234567890',
     OPENSCHOOL_METADATA_KEY: 'metadata-synthetic-12345678901234567890',
     OPENSCHOOL_METADATA_ENABLED: 'true',
+    OPENSCHOOL_CIRCLE_ADMISSION_ENABLED: 'true',
     OPENSCHOOL_METADATA_NAMESPACE: 'synthetic:local',
   });
   global.fetch = jest.fn().mockResolvedValue(

@@ -1,5 +1,15 @@
 const express = require('express');
 const request = require('supertest');
+const { createCircleExecution } = require('../../../../packages/api/src/openschool/execution');
+let mockCircleRuntime = createCircleExecution({ enabled: false });
+jest.mock('~/server/services/CircleExecution', () => ({
+  retire: (...args) => mockCircleRuntime.retire(...args),
+  drained: (...args) => mockCircleRuntime.drained(...args),
+  retireOwner: (...args) => mockCircleRuntime.retireOwner(...args),
+  fence: (...args) => mockCircleRuntime.fence(...args),
+  validateUpdate: (...args) => mockCircleRuntime.validateUpdate(...args),
+  existingResponse: (...args) => mockCircleRuntime.existingResponse(...args),
+}));
 
 const MOCKS = '../__test-utils__/convos-route-mocks';
 jest.mock('~/server/services/Config/app', () => ({ getAppConfig: jest.fn() }));
@@ -118,6 +128,7 @@ describe('Convos Routes', () => {
   });
 
   beforeEach(() => {
+    mockCircleRuntime = createCircleExecution({ enabled: false });
     jest.clearAllMocks();
     moderatedTexts.length = 0;
     generationJobManager.getCleanupJob.mockResolvedValue(null);
@@ -138,6 +149,41 @@ describe('Convos Routes', () => {
       'task-1',
       subscriber,
     );
+  });
+
+  it('update rejects conflicting top-level and arg IDs before any write', async () => {
+    const response = await request(app)
+      .post('/api/convos/update')
+      .send({ conversationId: 'one', arg: { conversationId: 'two', title: 'Synthetic' } });
+    expect(response.status).toBe(400);
+    expect(saveConvo).not.toHaveBeenCalled();
+  });
+
+  it('update uses noUpsert and returns 404 for a missing/deleted conversation', async () => {
+    saveConvo.mockResolvedValue(null);
+    const response = await request(app)
+      .post('/api/convos/update')
+      .send({ arg: { conversationId: 'missing', title: 'Synthetic' } });
+    expect(response.status).toBe(404);
+    expect(saveConvo).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ noUpsert: true }),
+    );
+  });
+
+  it('delete retains tombstone and never calls physical deletion while occupancy remains', async () => {
+    const tombstone = jest.fn();
+    mockCircleRuntime = createCircleExecution({
+      enabled: true,
+      store: () => ({ tombstone, idle: async () => false }),
+    });
+    const response = await request(app)
+      .delete('/api/convos')
+      .send({ arg: { conversationId: '33333333-3333-4333-8333-333333333333' } });
+    expect(response.status).toBe(500);
+    expect(tombstone).toHaveBeenCalledTimes(1);
+    expect(deleteConvos).not.toHaveBeenCalled();
   });
 
   it('filters and moderates subagent guidance as ordinary user text before control handling', async () => {

@@ -42,6 +42,7 @@ function setup(env: Record<string, string | undefined> = {}) {
     createConversationMetadataRouter({
       env: {
         OPENSCHOOL_METADATA_ENABLED: 'true',
+        OPENSCHOOL_CIRCLE_ADMISSION_ENABLED: 'true',
         OPENSCHOOL_METADATA_KEY: key,
         OPENSCHOOL_CENTRAL_API_KEY: 'synthetic-central-key-1234567890123456',
         OPENSCHOOL_METADATA_NAMESPACE: 'synthetic:tenant-one',
@@ -69,6 +70,16 @@ function setup(env: Record<string, string | undefined> = {}) {
     },
   };
 }
+
+test.each([undefined, 'false', 'TRUE'])(
+  'metadata cannot expose titles without active admission: %s',
+  async (enabled) => {
+    const f = setup({ OPENSCHOOL_CIRCLE_ADMISSION_ENABLED: enabled });
+    expect((await f.post()).status).toBe(503);
+    expect(f.fetchImpl).not.toHaveBeenCalled();
+    expect(f.query).not.toHaveBeenCalled();
+  },
+);
 
 test.each([undefined, 'false', '1', 'TRUE'])(
   'default off/exact enable returns 404: %s',

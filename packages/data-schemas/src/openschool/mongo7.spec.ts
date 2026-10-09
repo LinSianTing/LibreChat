@@ -7,6 +7,14 @@ import type { CircleBinding } from './binding';
 import type { MongoBindingStore } from './mongo';
 import { createMongoBindingStore } from './mongo';
 import { createConversationMetadataQuery, conversationMetadataPipeline } from './metadata';
+import { createMessageMethods } from '../methods/message';
+
+jest.mock('~/config/winston', () => ({
+  error: jest.fn(),
+  warn: jest.fn(),
+  info: jest.fn(),
+  debug: jest.fn(),
+}));
 
 const docker = promisify(execFile);
 const image = 'mongo@sha256:1f995ad6fdb93244a1addab1b58f934a0bc2f5643c38e02f5e9d7f0c7d227a7b';
@@ -193,6 +201,60 @@ fixtureTests('Mongo 7.0.43 standalone controlled Docker fixture', () => {
     expect(await store.read(binding.key)).toEqual({ kind: 'absent' });
   });
 
+  test('durable occupancy survives tombstone and reconnect, blocks reuse until explicit release', async () => {
+    await store.insertIfAbsent(binding);
+    const operation = randomUUID();
+    expect(await store.acquire(binding, operation)).toBe(true);
+    await store.tombstone(binding.key);
+    expect(await store.idle(binding.key)).toBe(false);
+    await connection!.close();
+    connection = await connect();
+    store = createMongoBindingStore(connection, options);
+    expect(await store.idle(binding.key)).toBe(false);
+    expect(await store.acquire(binding, randomUUID())).toBe(false);
+    await store.release(binding.key, operation);
+    expect(await store.idle(binding.key)).toBe(true);
+    await store.insertIfAbsent(binding);
+    expect(await store.read(binding.key)).toEqual({ kind: 'tombstone', key: binding.key });
+  });
+
+  test('concurrent retirement retains every successful occupancy and admits none afterwards', async () => {
+    await store.insertIfAbsent(binding);
+    const operations = Array.from({ length: 16 }, () => randomUUID());
+    const [acquired] = await Promise.all([
+      Promise.all(operations.map((operation) => store.acquire(binding, operation))),
+      store.tombstone(binding.key),
+    ]);
+    const row = await connection!.collection('openschoolbindings').findOne({});
+    expect(new Set(row?.operations ?? [])).toEqual(
+      new Set(operations.filter((_, i) => acquired[i])),
+    );
+    expect(await store.acquire(binding, randomUUID())).toBe(false);
+    await Promise.all(operations.map((operation) => store.release(binding.key, operation)));
+    expect(await store.idle(binding.key)).toBe(true);
+  });
+
+  test('scope/owner occupancy mismatch and failed release cannot permit deletion', async () => {
+    await store.insertIfAbsent(binding);
+    expect(
+      await store.acquire(
+        { ...binding, scope: { ...binding.scope, circleId: randomUUID() } },
+        randomUUID(),
+      ),
+    ).toBe(false);
+    expect(await store.acquire({ ...binding, memberId: randomUUID() }, randomUUID())).toBe(false);
+    const operation = randomUUID();
+    expect(await store.acquire(binding, operation)).toBe(true);
+    await store.tombstone(binding.key);
+    await connection!.db!.admin().command({
+      configureFailPoint: 'failCommand',
+      mode: { times: 1 },
+      data: { failCommands: ['update'], errorCode: 2 },
+    });
+    await expect(store.release(binding.key, operation)).rejects.toThrow();
+    expect(await store.idle(binding.key)).toBe(false);
+  });
+
   test('actual Mongo command failures cannot be confused with absent/success', async () => {
     const admin = connection!.db!.admin();
     await admin.command({
@@ -217,6 +279,49 @@ fixtureTests('Mongo 7.0.43 standalone controlled Docker fixture', () => {
     circle: binding.scope.circleId,
     view: 'mine' as const,
   };
+
+  test('actual saveMessage cannot move another conversation message through a fenced standalone save', async () => {
+    const Message = connection!.model(
+      'Message',
+      new mongoose.Schema(
+        {
+          user: String,
+          messageId: String,
+          conversationId: String,
+          text: String,
+        },
+        { strict: false },
+      ),
+      'fencedmessages',
+    );
+    await Message.collection.createIndex({ user: 1, messageId: 1 }, { unique: true });
+    const methods = createMessageMethods({ models: { Message } } as unknown as typeof mongoose);
+    const messageId = randomUUID();
+    const source = randomUUID();
+    await Message.create({
+      user: binding.key.chatOwnerId,
+      messageId,
+      conversationId: source,
+      text: 'Synthetic source',
+    });
+    for (const userSubmittedPaths of [undefined, ['/text']]) {
+      const result = await methods.saveMessage(
+        { userId: binding.key.chatOwnerId },
+        {
+          messageId,
+          conversationId: binding.key.conversationId,
+          text: 'Attempted destination',
+          userSubmittedPaths,
+        },
+        { conversationIdFence: binding.key.conversationId },
+      );
+      expect(result).toBeUndefined();
+      expect(await Message.findOne({ messageId }).lean()).toMatchObject({
+        conversationId: source,
+        text: 'Synthetic source',
+      });
+    }
+  });
   const dates = {
     createdAt: new Date('2026-10-01T00:00:00.000Z'),
     updatedAt: new Date('2026-10-09T00:00:00.000Z'),

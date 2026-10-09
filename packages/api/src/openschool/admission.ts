@@ -178,8 +178,7 @@ function decide(prepared: PreparedFacts, stored: BindingRead): AdmissionDecision
     }
     if (
       actual.scope.endpoint !== expected.scope.endpoint ||
-      actual.scope.circleId !== expected.scope.circleId ||
-      actual.scope.model !== expected.scope.model
+      actual.scope.circleId !== expected.scope.circleId
     ) {
       return deny('scope-mismatch');
     }

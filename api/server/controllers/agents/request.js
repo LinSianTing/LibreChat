@@ -1,3 +1,4 @@
+const circleExecution = require('~/server/services/CircleExecution');
 const { logger, tenantStorage, createChatExpirationDate } = require('@librechat/data-schemas');
 const { v5: uuidv5 } = require('uuid');
 const {
@@ -883,6 +884,7 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
         ? uuidv5(`${userId}:${clientRequestId}`, NEW_CONVERSATION_IDEMPOTENCY_NAMESPACE)
         : crypto.randomUUID());
   }
+  conversationId = circleExecution.finalId(req, conversationId);
   const conversationAnchorPromise = resolveConversationCreatedAt({
     userId,
     conversationId,
@@ -3333,6 +3335,7 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
     };
 
     // Start generation and handle any unhandled errors
+    circleExecution.background(req);
     void startGeneration()
       .catch(async (err) => {
         logger.error(
@@ -3373,15 +3376,20 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
         }
       })
       .finally(async () => {
-        await Promise.allSettled([immediateTitlePromise, trailingWritePromise].filter(Boolean));
-        if (providerExecutionId) {
-          await GenerationJobManager.markProviderExecutionDrained?.(
-            streamId,
-            jobCreatedAt,
-            providerExecutionId,
-          );
-        }
-        await releaseEventChildLease?.();
+        await circleExecution.complete(
+          req,
+          [immediateTitlePromise, trailingWritePromise].filter(Boolean),
+          async () => {
+            if (providerExecutionId) {
+              await GenerationJobManager.markProviderExecutionDrained?.(
+                streamId,
+                jobCreatedAt,
+                providerExecutionId,
+              );
+            }
+            await releaseEventChildLease?.();
+          },
+        );
       })
       .catch((drainError) => {
         logger.warn(
@@ -3540,4 +3548,4 @@ const ResumableAgentController = async (req, res, next, initializeClient, addTit
   }
 };
 
-module.exports = ResumableAgentController;
+module.exports = circleExecution.wrap(ResumableAgentController);

@@ -188,7 +188,8 @@ export function createConversationMetadataService(
       !namespace ||
       namespace.trim() !== namespace ||
       namespace.length > 200 ||
-      deps.env.OPENSCHOOL_METADATA_ENABLED !== 'true'
+      deps.env.OPENSCHOOL_METADATA_ENABLED !== 'true' ||
+      deps.env.OPENSCHOOL_CIRCLE_ADMISSION_ENABLED !== 'true'
     ) {
       throw failure(503);
     }
@@ -272,7 +273,7 @@ export function createConversationMetadataRouter(deps: MetadataDependencies): Ro
       return;
     }
     const key = env.OPENSCHOOL_METADATA_KEY;
-    if (!validKey(key)) {
+    if (!validKey(key) || env.OPENSCHOOL_CIRCLE_ADMISSION_ENABLED !== 'true') {
       res.sendStatus(503);
       return;
     }

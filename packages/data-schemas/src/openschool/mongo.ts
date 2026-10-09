@@ -13,6 +13,7 @@ interface BindingRow {
   endpoint?: string;
   circleId?: string;
   model?: string;
+  operations?: string[];
 }
 
 export interface MongoBindingOptions {
@@ -27,6 +28,11 @@ export interface MongoBindingOptions {
 export interface MongoBindingStore extends BindingStore {
   /** Permanent, idempotent reservation, including when no binding exists yet. */
   tombstone(key: BindingKey): Promise<void>;
+  /** Durable occupancy, never expires or steals an execution of uncertain outcome. */
+  acquire(binding: CircleBinding, operationId: string): Promise<boolean>;
+  release(key: BindingKey, operationId: string): Promise<void>;
+  idle(key: BindingKey): Promise<boolean>;
+  ownerKeys(chatOwnerId: string): Promise<BindingKey[]>;
 }
 
 const ownerPattern = /^[0-9a-f]{24}$/;
@@ -113,6 +119,7 @@ export function createMongoBindingStore(
       endpoint: String,
       circleId: String,
       model: String,
+      operations: { type: [String], default: undefined },
     },
     {
       versionKey: false,
@@ -282,5 +289,71 @@ export function createMongoBindingStore(
     }
   }
 
-  return { read, insertIfAbsent, tombstone };
+  async function acquire(binding: CircleBinding, operationId: string): Promise<boolean> {
+    if (!validBinding(binding) || !matches(guidPattern, operationId)) {
+      throw new Error('Invalid binding occupancy');
+    }
+    await checkTopology();
+    const result = await Model.updateOne(
+      {
+        ...identity(binding.key),
+        state: 'bound',
+        version: 1,
+        memberId: binding.memberId,
+        endpoint: binding.scope.endpoint,
+        circleId: binding.scope.circleId,
+      },
+      { $addToSet: { operations: operationId } },
+      { ...writeOptions, upsert: false },
+    ).exec();
+    return result.matchedCount === 1;
+  }
+
+  async function release(key: BindingKey, operationId: string): Promise<void> {
+    if (!matches(guidPattern, operationId)) {
+      throw new Error('Invalid binding occupancy');
+    }
+    await checkTopology();
+    const result = await Model.updateOne(
+      identity(key),
+      { $pull: { operations: operationId } },
+      { ...writeOptions, upsert: false },
+    ).exec();
+    if (result.matchedCount !== 1) {
+      throw new Error('Binding occupancy disappeared');
+    }
+  }
+
+  async function idle(key: BindingKey): Promise<boolean> {
+    await checkTopology();
+    const row = await Model.findOne(identity(key))
+      .select({ state: 1, operations: 1 })
+      .read('primary')
+      .readConcern(mode === 'standalone' ? 'local' : 'linearizable')
+      .setOptions({ maxTimeMS: timeoutMS, timeoutMS })
+      .lean()
+      .exec();
+    if (!row || row.state !== 'tombstone') {
+      throw new Error('Deletion fence unavailable');
+    }
+    return (
+      row.operations === undefined || (Array.isArray(row.operations) && row.operations.length === 0)
+    );
+  }
+
+  async function ownerKeys(chatOwnerId: string): Promise<BindingKey[]> {
+    if (!matches(ownerPattern, chatOwnerId)) throw new Error('Invalid binding owner');
+    await checkTopology();
+    // Snapshot discovery only. Every returned identity is subsequently durably tombstoned/read.
+    const rows = await Model.find({ namespace, chatOwnerId })
+      .select({ _id: 0, conversationId: 1 })
+      .read('primary')
+      .readConcern(mode === 'standalone' ? 'local' : 'majority')
+      .setOptions({ maxTimeMS: timeoutMS, timeoutMS })
+      .lean()
+      .exec();
+    return rows.map(({ conversationId }) => ({ chatOwnerId, conversationId }));
+  }
+
+  return { read, insertIfAbsent, tombstone, acquire, release, idle, ownerKeys };
 }

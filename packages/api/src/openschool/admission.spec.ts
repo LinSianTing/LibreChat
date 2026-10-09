@@ -143,7 +143,6 @@ describe('conversation admission policy', () => {
 
   it.each([
     { ...SCOPE, circleId: OTHER_CIRCLE },
-    { ...SCOPE, model: 'circle-b' },
     { ...SCOPE, endpoint: 'Other' },
   ])(
     'rejects scope changes on continuation AND new-request replay before any write',

@@ -112,6 +112,7 @@ export {
 
 export type * from './openschool/binding';
 export { createMongoBindingStore } from './openschool/mongo';
+export { createConversationPresence } from './openschool/presence';
 export type { MongoBindingStore, MongoBindingOptions } from './openschool/mongo';
 
 export { createConversationMetadataQuery } from './openschool/metadata';

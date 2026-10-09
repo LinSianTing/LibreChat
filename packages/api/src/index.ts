@@ -134,3 +134,4 @@ export type * from './types';
 export { parseCentralModelCatalog, resolveCentralModelScope } from './openschool/catalog';
 
 export { createConversationMetadataRouter } from './openschool/metadata';
+export { createCircleExecution, circleExecutionOptions } from './openschool/execution';

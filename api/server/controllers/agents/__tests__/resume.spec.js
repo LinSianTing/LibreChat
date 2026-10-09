@@ -21,6 +21,14 @@
  */
 
 const express = require('express');
+const { createCircleExecution } = require('../../../../../packages/api/src/openschool/execution');
+let mockCircleRuntime = createCircleExecution({ enabled: false });
+jest.mock('~/server/services/CircleExecution', () => ({
+  wrap:
+    (controller) =>
+    (...args) =>
+      mockCircleRuntime.wrap(controller)(...args),
+}));
 const request = require('supertest');
 const { Tools, Constants, ResourceType, AgentCapabilities } = require('librechat-data-provider');
 
@@ -312,6 +320,7 @@ describe('ResumeAgentController (POST /agents/chat/resume)', () => {
   let settled;
 
   beforeEach(() => {
+    mockCircleRuntime = createCircleExecution({ enabled: false });
     jest.clearAllMocks();
 
     capturedInit = null;
@@ -478,6 +487,60 @@ describe('ResumeAgentController (POST /agents/chat/resume)', () => {
     endpoint: 'agents',
     decisions: [{ tool_call_id: 'tc1', decision: 'approve' }],
     ...extra,
+  });
+
+  it('rejects cross-circle resume before checkpoint, history, persistence or provider', async () => {
+    const owner = '111111111111111111111111';
+    const member = '22222222-2222-4222-8222-222222222222';
+    const conversationId = '33333333-3333-4333-8333-333333333333';
+    mockCircleRuntime = createCircleExecution({
+      enabled: true,
+      store: () => ({
+        read: async () => ({
+          kind: 'bound',
+          binding: {
+            version: 1,
+            key: { chatOwnerId: owner, conversationId },
+            memberId: member,
+            scope: {
+              endpoint: 'OpenSchool',
+              model: 'circle-a',
+              circleId: '44444444-4444-4444-8444-444444444444',
+            },
+          },
+        }),
+      }),
+      scope: async () => ({
+        kind: 'resolved',
+        value: {
+          endpoint: 'OpenSchool',
+          model: 'circle-b',
+          circleId: '55555555-5555-4555-8555-555555555555',
+        },
+      }),
+      report: jest.fn(),
+    });
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    await ResumeAgentController(
+      {
+        path: '/resume',
+        user: { id: owner, memberId: member },
+        body: {
+          conversationId,
+          endpoint: 'OpenSchool',
+          endpointOption: { endpoint: 'OpenSchool', model_parameters: { model: 'circle-b' } },
+        },
+      },
+      res,
+      jest.fn(),
+      mockInitializeClient,
+      mockAddTitle,
+    );
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(mockCaptureAgentCheckpointGeneration).not.toHaveBeenCalled();
+    expect(mockGetMessages).not.toHaveBeenCalled();
+    expect(mockSaveMessage).not.toHaveBeenCalled();
+    expect(mockInitializeClient).not.toHaveBeenCalled();
   });
 
   const configureEventActorResume = (expiredAt = new Date(Date.now() + 60_000)) => {
