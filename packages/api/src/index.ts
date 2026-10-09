@@ -132,3 +132,5 @@ export type * from './flow/types';
 export type * from './types';
 
 export { parseCentralModelCatalog, resolveCentralModelScope } from './openschool/catalog';
+
+export { createConversationMetadataRouter } from './openschool/metadata';

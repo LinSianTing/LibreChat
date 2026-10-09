@@ -113,3 +113,6 @@ export {
 export type * from './openschool/binding';
 export { createMongoBindingStore } from './openschool/mongo';
 export type { MongoBindingStore, MongoBindingOptions } from './openschool/mongo';
+
+export { createConversationMetadataQuery } from './openschool/metadata';
+export type { MetadataQuery, MetadataScope, MetadataPosition, ConversationMetadata } from './openschool/metadata';
