@@ -4,19 +4,20 @@
  * nobody and does not guard history/model calls until a controller integrates its result.
  * The store is scoped by the caller to one deployment/tenant identity namespace.
  */
-export type CircleScope = Readonly<{
-  endpoint: string;
-  circleId: string;
-  model: string;
-}>;
-
-export type BindingKey = Readonly<{ chatOwnerId: string; conversationId: string }>;
-export type CircleBinding = Readonly<{
-  version: 1;
-  key: BindingKey;
-  memberId: string;
-  scope: CircleScope;
-}>;
+import type {
+  CircleScope,
+  BindingKey,
+  CircleBinding,
+  BindingRead,
+  BindingStore,
+} from '@librechat/data-schemas';
+export type {
+  CircleScope,
+  BindingKey,
+  CircleBinding,
+  BindingRead,
+  BindingStore,
+} from '@librechat/data-schemas';
 
 type ConversationIdentity = Readonly<{
   chatOwnerId: string;
@@ -47,24 +48,6 @@ export type AdmissionFacts = Readonly<{
   /** Resolved from the currently authorized server catalog, including a stable circle GUID. */
   scope: { kind: 'resolved'; value: CircleScope } | { kind: 'unknown' | 'error' };
 }>;
-
-export type BindingRead =
-  | { kind: 'absent' }
-  | { kind: 'bound'; binding: CircleBinding }
-  | { kind: 'tombstone'; key: BindingKey }
-  | { kind: 'unknown' | 'error' };
-
-export interface BindingStore {
-  /** Authoritative read, not an eventually consistent cache; failures must never mean absent. */
-  read(key: BindingKey): Promise<BindingRead>;
-  /**
-   * Atomic, durable insert on the unique key; an existing binding OR tombstone must remain
-   * untouched. Resolve on conflict, throw on failure/uncertain outcome. The caller reads back
-   * the winner. Never implement as read-then-overwrite. Adapters own IO deadlines, creation
-   * fencing against imports, and permanent tombstones on deletion (no TTL/reuse).
-   */
-  insertIfAbsent(binding: CircleBinding): Promise<void>;
-}
 
 export type AdmissionDenial = Readonly<{
   kind: 'denied';

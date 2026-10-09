@@ -109,3 +109,7 @@ export {
   dropSupersededPromptGroupIndexes,
   backfillMCPServerNormalizedNames,
 } from './migrations';
+
+export type * from './openschool/binding';
+export { createMongoBindingStore } from './openschool/mongo';
+export type { MongoBindingStore, MongoBindingOptions } from './openschool/mongo';
