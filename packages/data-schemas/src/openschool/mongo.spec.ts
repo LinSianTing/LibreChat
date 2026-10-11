@@ -1,9 +1,9 @@
 import mongoose from 'mongoose';
 import { MongoMemoryReplSet, MongoMemoryServer } from 'mongodb-memory-server';
 import type { Connection } from 'mongoose';
-import type { CircleBinding } from './binding';
-import type { MongoBindingStore, MongoBindingOptions } from './mongo';
 import type { AdmissionFacts } from '../../../api/src/openschool/admission';
+import type { MongoBindingStore, MongoBindingOptions } from './mongo';
+import type { CircleBinding } from './binding';
 import { admitConversation } from '../../../api/src/openschool/admission';
 import { createMongoBindingStore } from './mongo';
 

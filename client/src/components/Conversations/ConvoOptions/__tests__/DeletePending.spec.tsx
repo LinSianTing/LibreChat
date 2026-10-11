@@ -1,11 +1,11 @@
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { DeleteConversationDialog } from '../DeleteButton';
 import ArchivedChatsTable from '~/components/Nav/SettingsTabs/General/ArchivedChatsTable';
 import { conversationDeleteErrorKey } from '~/utils/conversationDeleteError';
-import en from '~/locales/en/translation.json';
+import { DeleteConversationDialog } from '../DeleteButton';
 import mockZh from '~/locales/zh-Hant/translation.json';
+import en from '~/locales/en/translation.json';
 
 const mockToast = jest.fn();
 const mockMutate = jest.fn();

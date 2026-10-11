@@ -116,4 +116,9 @@ export { createConversationPresence } from './openschool/presence';
 export type { MongoBindingStore, MongoBindingOptions } from './openschool/mongo';
 
 export { createConversationMetadataQuery } from './openschool/metadata';
-export type { MetadataQuery, MetadataScope, MetadataPosition, ConversationMetadata } from './openschool/metadata';
+export type {
+  MetadataQuery,
+  MetadataScope,
+  MetadataPosition,
+  ConversationMetadata,
+} from './openschool/metadata';

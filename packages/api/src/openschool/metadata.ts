@@ -1,3 +1,4 @@
+import { Router, json } from 'express';
 import {
   createHash,
   createCipheriv,
@@ -5,14 +6,13 @@ import {
   randomBytes,
   timingSafeEqual,
 } from 'node:crypto';
-import { Router, json } from 'express';
-import type { ErrorRequestHandler } from 'express';
 import type {
   MetadataQuery,
   MetadataScope,
   MetadataPosition,
   ConversationMetadata,
 } from '@librechat/data-schemas';
+import type { ErrorRequestHandler } from 'express';
 
 const audience = 'openschool-chat-metadata-v1';
 const sort = 'updatedAt:desc,id:asc';

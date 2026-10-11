@@ -1,15 +1,15 @@
-import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { promisify } from 'node:util';
 import mongoose from 'mongoose';
+import { promisify } from 'node:util';
+import { randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import type { Connection } from 'mongoose';
-import type { CircleBinding } from './binding';
 import type { MongoBindingStore } from './mongo';
-import { createMongoBindingStore } from './mongo';
+import type { CircleBinding } from './binding';
 import { createConversationMetadataQuery, conversationMetadataPipeline } from './metadata';
-import { createMessageMethods } from '../methods/message';
 import { createConversationMethods } from '../methods/conversation';
 import { createConversationImportMethods } from '../methods/import';
+import { createMessageMethods } from '../methods/message';
+import { createMongoBindingStore } from './mongo';
 
 jest.mock('~/config/winston', () => ({
   error: jest.fn(),

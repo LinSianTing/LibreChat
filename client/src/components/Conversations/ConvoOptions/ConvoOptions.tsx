@@ -1,4 +1,3 @@
-import { conversationDeleteErrorKey } from '~/utils/conversationDeleteError';
 import { useState, useId, useRef, memo, useCallback, useMemo } from 'react';
 import * as Ariakit from '@ariakit/react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -34,6 +33,7 @@ import {
   usePinConversationMutation,
 } from '~/data-provider';
 import { useHasAccess, useLocalize, useNavigateToConvo, useNewConvo } from '~/hooks';
+import { conversationDeleteErrorKey } from '~/utils/conversationDeleteError';
 import { useChatContext, useLiveAnnouncer } from '~/Providers';
 import { NotificationSeverity } from '~/common';
 import ProjectButton from './ProjectButton';

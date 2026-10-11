@@ -1,8 +1,8 @@
 import express from 'express';
 import request from 'supertest';
 import { request as httpRequest } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import type { MetadataScope, ConversationMetadata } from '@librechat/data-schemas';
+import type { AddressInfo } from 'node:net';
 import { createConversationMetadataRouter } from './metadata';
 
 const key = 'synthetic-metadata-key-1234567890123456';

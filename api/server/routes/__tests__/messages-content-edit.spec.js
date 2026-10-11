@@ -1,3 +1,11 @@
+// These legacy route/client tests have no circle deployment. Keep the real disabled
+// execution contract local to this suite; enabled guard suites exercise admission separately.
+jest.mock('~/server/services/CircleExecution', () =>
+  jest
+    .requireActual('../../../../packages/api/src/openschool/execution')
+    .createCircleExecution({ enabled: false }),
+);
+
 const express = require('express');
 const request = require('supertest');
 const { ContentTypes } = require('librechat-data-provider');
@@ -97,20 +105,24 @@ describe('PUT /:conversationId/:messageId content edit', () => {
       .send({ index: 0, text: 'Edited response', model: 'gpt-5' });
 
     expect(response.status).toBe(200);
-    expect(updateMessage).toHaveBeenCalledWith('user-1', {
-      messageId: 'message-1',
-      tokenCount: 10,
-      content: [
-        {
-          type: ContentTypes.TEXT,
-          text: 'Edited response',
-          phase: 'commentary',
-          agentId: 'agent-1',
-          tool_call_ids: ['tool-1'],
-        },
-      ],
-      userSubmittedPaths: ['/content/0/text'],
-    });
+    expect(updateMessage).toHaveBeenCalledWith(
+      'user-1',
+      {
+        messageId: 'message-1',
+        tokenCount: 10,
+        content: [
+          {
+            type: ContentTypes.TEXT,
+            text: 'Edited response',
+            phase: 'commentary',
+            agentId: 'agent-1',
+            tool_call_ids: ['tool-1'],
+          },
+        ],
+        userSubmittedPaths: ['/content/0/text'],
+      },
+      { conversationIdFence: 'conversation-1' },
+    );
   });
 
   it('inspects the finalized edited part without reclassifying untouched model siblings', async () => {
@@ -164,18 +176,22 @@ describe('PUT /:conversationId/:messageId content edit', () => {
       .send({ index: 0, text: 'Edited reasoning', model: 'gpt-5' });
 
     expect(response.status).toBe(200);
-    expect(updateMessage).toHaveBeenCalledWith('user-1', {
-      messageId: 'message-1',
-      tokenCount: 10,
-      content: [
-        {
-          type: ContentTypes.THINK,
-          think: 'Edited reasoning',
-          agentId: 'agent-1',
-        },
-      ],
-      userSubmittedPaths: ['/content/0/think'],
-    });
+    expect(updateMessage).toHaveBeenCalledWith(
+      'user-1',
+      {
+        messageId: 'message-1',
+        tokenCount: 10,
+        content: [
+          {
+            type: ContentTypes.THINK,
+            think: 'Edited reasoning',
+            agentId: 'agent-1',
+          },
+        ],
+        userSubmittedPaths: ['/content/0/think'],
+      },
+      { conversationIdFence: 'conversation-1' },
+    );
   });
 
   /**
@@ -210,17 +226,21 @@ describe('PUT /:conversationId/:messageId content edit', () => {
       .send({ index: 0, text: 'Edited response', model: 'gpt-5' });
 
     expect(response.status).toBe(200);
-    expect(updateMessage).toHaveBeenCalledWith('user-1', {
-      messageId: 'message-1',
-      tokenCount: 10,
-      content: [
-        {
-          type: ContentTypes.TEXT,
-          text: { value: 'Edited response', annotations },
-        },
-      ],
-      userSubmittedPaths: ['/content/0/text'],
-    });
+    expect(updateMessage).toHaveBeenCalledWith(
+      'user-1',
+      {
+        messageId: 'message-1',
+        tokenCount: 10,
+        content: [
+          {
+            type: ContentTypes.TEXT,
+            text: { value: 'Edited response', annotations },
+          },
+        ],
+        userSubmittedPaths: ['/content/0/text'],
+      },
+      { conversationIdFence: 'conversation-1' },
+    );
     expect(countTokens).toHaveBeenCalledWith('Original response', 'gpt-5');
   });
 });

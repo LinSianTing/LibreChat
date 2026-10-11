@@ -1,5 +1,5 @@
-import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import type { CircleBinding, BindingRead, MongoBindingStore } from '@librechat/data-schemas';
 import { createCircleExecution, circleExecutionOptions } from './execution';
 

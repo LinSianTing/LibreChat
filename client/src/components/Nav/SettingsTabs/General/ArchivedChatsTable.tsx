@@ -1,4 +1,3 @@
-import { conversationDeleteErrorKey } from '~/utils/conversationDeleteError';
 import { useState, useCallback, useMemo } from 'react';
 import { Trans } from 'react-i18next';
 import { useRecoilValue } from 'recoil';
@@ -24,6 +23,7 @@ import {
   useDeleteConversationMutation,
   useArchiveConvoMutation,
 } from '~/data-provider';
+import { conversationDeleteErrorKey } from '~/utils/conversationDeleteError';
 import { MinimalIcon } from '~/components/Endpoints';
 import { NotificationSeverity } from '~/common';
 import { formatDate, logger } from '~/utils';

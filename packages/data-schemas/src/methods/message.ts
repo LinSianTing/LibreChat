@@ -721,6 +721,12 @@ export interface MessageMethods {
       updatedAt: Date;
     };
   } | null>;
+  /** Insert-only imports use server-issued hex receipts before Mongoose casts them. */
+  bulkSaveMessages(
+    messages: Array<Omit<Partial<IMessage>, '_id'> & { _id: string }>,
+    overrideTimestamp: boolean,
+    insertOnly: true,
+  ): Promise<unknown>;
   bulkSaveMessages(
     messages: Array<Partial<IMessage>>,
     overrideTimestamp?: boolean,
