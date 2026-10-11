@@ -56,8 +56,34 @@ class AdmissionError extends Error {
   }
 }
 
+
+export interface CircleExecution {
+  beforeOptions(req: Request, res: Response, selected: { endpoint: string; model: string }, next: () => Promise<unknown>): Promise<unknown>;
+  wrap<Args extends unknown[]>(controller: (req: Request, res: Response, ...args: Args) => Promise<unknown>): (req: Request, res: Response, ...args: Args) => Promise<unknown>;
+  finalId(req: Request, fallback: string): string;
+  assertId(req: Request | undefined, id: string): void;
+  background(req: Request): void;
+  settle(req: Request, writes: Promise<unknown>[]): Promise<void>;
+  complete(req: Request, writes: Promise<unknown>[], cleanup: () => Promise<void>): Promise<void>;
+  release(req: Request): Promise<void>;
+  retire(owner: string, ids: string[]): Promise<void>;
+  drained(owner: string, ids: string[]): Promise<void>;
+  retireOwner(owner: string): Promise<string[]>;
+  fence(owner: string, ids: string[], drain: () => Promise<void>): Promise<void>;
+  validateUpdate(req: Request, res: Response, next: () => unknown): unknown;
+  existingResponse(res: Response, value: unknown): unknown;
+  mutation(controller: (req: Request, res: Response) => Promise<unknown>): (req: Request, res: Response) => Promise<unknown>;
+  
+}
+export interface CircleExecutionOptions {
+  enabled: boolean;
+  enforceExisting: boolean;
+  tenantId?: string;
+  binding: { namespace: string; timeoutMS: number; topology: { mode: 'standalone' } | { mode: 'replica-set'; setName: string } };
+}
+
 /** Request identity is held outside browser data. Dependencies are trusted startup configuration. */
-export function createCircleExecution(deps: Dependencies) {
+export function createCircleExecution(deps: Dependencies): CircleExecution {
   const guarding = deps.enabled || deps.enforceExisting === true;
   const executions = new WeakMap<Request, Execution>();
   function fail(code = 'OPENSCHOOL_ADMISSION_UNAVAILABLE', status = 503): never {
@@ -364,7 +390,7 @@ export function createCircleExecution(deps: Dependencies) {
 
 /** Deployment identity/topology are server-only, alongside the metadata namespace and credentials.
  * Intentionally not a browser-visible configuration field; no automatic topology fallback. */
-export function circleExecutionOptions(env: Record<string, string | undefined>) {
+export function circleExecutionOptions(env: Record<string, string | undefined>): CircleExecutionOptions {
   const enabled = env.OPENSCHOOL_CIRCLE_ADMISSION_ENABLED === 'true';
   const mode = env.OPENSCHOOL_BINDING_TOPOLOGY;
   return {
