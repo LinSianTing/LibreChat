@@ -1357,6 +1357,7 @@
   "com_ui_conversations": "conversations",
   "com_ui_convert_to_queue": "Queue for after the response",
   "com_ui_convo_archived": "Conversation archived",
+  "com_ui_convo_delete_pending": "This conversation still has work awaiting confirmation. Deletion is not complete. Please try again later.",
   "com_ui_convo_delete_error": "Failed to delete conversation",
   "com_ui_convo_delete_success": "Conversation successfully deleted",
   "com_ui_convo_unarchived": "Conversation unarchived",

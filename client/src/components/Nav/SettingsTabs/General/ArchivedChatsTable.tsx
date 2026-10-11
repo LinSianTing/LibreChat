@@ -1,3 +1,4 @@
+import { conversationDeleteErrorKey } from '~/utils/conversationDeleteError';
 import { useState, useCallback, useMemo } from 'react';
 import { Trans } from 'react-i18next';
 import { useRecoilValue } from 'recoil';
@@ -133,7 +134,9 @@ export default function ArchivedChatsTable() {
     onError: (error: unknown) => {
       logger.error('Error deleting archived conversation:', error);
       showToast({
-        message: localize('com_ui_archive_delete_error') as string,
+        message: localize(
+          conversationDeleteErrorKey(error, 'com_ui_archive_delete_error'),
+        ) as string,
         severity: NotificationSeverity.ERROR,
       });
     },

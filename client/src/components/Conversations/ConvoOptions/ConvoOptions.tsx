@@ -1,3 +1,4 @@
+import { conversationDeleteErrorKey } from '~/utils/conversationDeleteError';
 import { useState, useId, useRef, memo, useCallback, useMemo } from 'react';
 import * as Ariakit from '@ariakit/react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -128,9 +129,9 @@ function ConvoOptions({
         showIcon: true,
       });
     },
-    onError: () => {
+    onError: (error: unknown) => {
       showToast({
-        message: localize('com_ui_convo_delete_error'),
+        message: localize(conversationDeleteErrorKey(error)),
         severity: NotificationSeverity.ERROR,
         showIcon: true,
       });

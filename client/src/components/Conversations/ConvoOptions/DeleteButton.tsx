@@ -1,3 +1,4 @@
+import { conversationDeleteErrorKey } from '~/utils/conversationDeleteError';
 import React, { useCallback } from 'react';
 import { Trans } from 'react-i18next';
 import { QueryKeys } from 'librechat-data-provider';
@@ -67,9 +68,9 @@ export function DeleteConversationDialog({
         showIcon: true,
       });
     },
-    onError: () => {
+    onError: (error: unknown) => {
       showToast({
-        message: localize('com_ui_convo_delete_error'),
+        message: localize(conversationDeleteErrorKey(error)),
         severity: NotificationSeverity.ERROR,
         showIcon: true,
       });

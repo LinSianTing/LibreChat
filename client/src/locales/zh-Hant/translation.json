@@ -1042,6 +1042,7 @@
   "com_ui_conversations": "對話",
   "com_ui_convert_to_queue": "回覆完成後再傳送",
   "com_ui_convo_archived": "對話已封存",
+  "com_ui_convo_delete_pending": "這段對話仍有作業尚未確認結束，刪除尚未完成。請稍後再試。",
   "com_ui_convo_delete_error": "刪除對話失敗",
   "com_ui_convo_delete_success": "對話刪除成功",
   "com_ui_copied": "已複製！",

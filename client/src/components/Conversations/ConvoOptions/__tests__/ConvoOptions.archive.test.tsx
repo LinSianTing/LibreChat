@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import '@testing-library/jest-dom';
 import ConvoOptions from '../ConvoOptions';
 
+const mockShowToast = jest.fn();
+let mockDeleteCallbacks: { onError: (error: unknown) => void };
 const mockArchiveMutate = jest.fn();
 const mockNavigate = jest.fn();
 const mockNewConversation = jest.fn();
@@ -56,14 +58,17 @@ jest.mock('@librechat/client', () => ({
   ),
   Spinner: () => <span role="status" />,
   buttonVariants: () => '',
-  useToastContext: () => ({ showToast: jest.fn() }),
+  useToastContext: () => ({ showToast: mockShowToast }),
   useMediaQuery: () => false,
 }));
 
 jest.mock('~/data-provider', () => ({
   useDuplicateConversationMutation: () => ({ mutate: jest.fn(), isLoading: false }),
   useAssignConversationToProjectMutation: () => ({ mutate: jest.fn(), isLoading: false }),
-  useDeleteConversationMutation: () => ({ mutate: jest.fn(), isLoading: false }),
+  useDeleteConversationMutation: (callbacks: typeof mockDeleteCallbacks) => {
+    mockDeleteCallbacks = callbacks;
+    return { mutate: jest.fn(), isLoading: false };
+  },
   useGetStartupConfig: () => ({ data: { sharedLinksEnabled: false } }),
   useArchiveConvoMutation: () => ({ mutate: mockArchiveMutate, isLoading: false }),
   usePinConversationMutation: () => ({ mutate: jest.fn(), isLoading: false }),
@@ -210,5 +215,24 @@ describe('ConvoOptions archive action', () => {
     act(() => callbacks.onSuccess());
     expect(mockNewConversation).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('quick delete error feedback', () => {
+  it.each([
+    ['OPENSCHOOL_DELETION_PENDING', 'com_ui_convo_delete_pending'],
+    ['UNKNOWN', 'com_ui_convo_delete_error'],
+  ])('uses safe local copy for %s without navigating away', (code, key) => {
+    jest.clearAllMocks();
+    renderOptions(false);
+    act(() =>
+      mockDeleteCallbacks.onError({
+        response: { status: 409, data: { code, error: 'private details' } },
+      }),
+    );
+    expect(mockShowToast).toHaveBeenCalledWith(expect.objectContaining({ message: key }));
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockNewConversation).not.toHaveBeenCalled();
+    expect(mockRetainView).not.toHaveBeenCalled();
   });
 });
