@@ -8,6 +8,8 @@ import type { MongoBindingStore } from './mongo';
 import { createMongoBindingStore } from './mongo';
 import { createConversationMetadataQuery, conversationMetadataPipeline } from './metadata';
 import { createMessageMethods } from '../methods/message';
+import { createConversationMethods } from '../methods/conversation';
+import { createConversationImportMethods } from '../methods/import';
 
 jest.mock('~/config/winston', () => ({
   error: jest.fn(),
@@ -150,6 +152,138 @@ fixtureTests('Mongo 7.0.43 standalone controlled Docker fixture', () => {
     }
     await docker('docker', ['stop', '--time', '5', name], { timeout: 15000 });
   }, 30000);
+
+  test('import reservation and attribution race share one durable winner', async () => {
+    const op = randomUUID();
+    const [reserved] = await Promise.all([
+      store.reserveImport(binding.key, op),
+      store.insertIfAbsent(binding),
+    ]);
+    const row = await store.read(binding.key);
+    expect(row.kind).toBe(reserved ? 'unbound' : 'bound');
+    expect(await store.reserveImport(binding.key, randomUUID())).toBe(false);
+    if (reserved) {
+      await store.release(binding.key, op);
+      await store.insertIfAbsent(binding);
+      expect(await store.read(binding.key)).toEqual({
+        kind: 'unbound',
+        key: binding.key,
+        pending: false,
+      });
+    }
+  });
+
+  test('offline reconciliation requires tombstone and exact operations after reconnect', async () => {
+    const op = randomUUID(),
+      other = randomUUID();
+    await store.insertIfAbsent(binding);
+    await store.acquire(binding, op);
+    expect(await store.reconcileRetired(binding.key, [op])).toBe(false);
+    await store.tombstone(binding.key);
+    await connection!.close();
+    connection = await connect();
+    store = createMongoBindingStore(connection, options);
+    expect(await store.idle(binding.key)).toBe(false);
+    expect(await store.occupancy(binding.key)).toEqual([op]);
+    expect(await store.reconcileRetired(binding.key, [other])).toBe(false);
+    expect(await store.idle(binding.key)).toBe(false);
+    expect(await store.reconcileRetired(binding.key, [op])).toBe(true);
+    expect(await store.idle(binding.key)).toBe(true);
+    expect(await store.acquire(binding, randomUUID())).toBe(false);
+    expect((await store.read(binding.key)).kind).toBe('tombstone');
+  });
+
+  test('insert-only bulk collisions and receipt cleanup preserve existing conversation/messages', async () => {
+    // Minimal persistence schemas keep this a data-method test, not full application boot.
+    const convoSchema = new mongoose.Schema(
+      { conversationId: String, user: String, title: String, tenantId: String },
+      { strict: false },
+    );
+    convoSchema.index({ conversationId: 1, user: 1, tenantId: 1 }, { unique: true });
+    const messageSchema = new mongoose.Schema(
+      { messageId: String, conversationId: String, user: String, text: String, tenantId: String },
+      { strict: false },
+    );
+    messageSchema.index({ messageId: 1, user: 1, tenantId: 1 }, { unique: true });
+    const Conversation = connection!.model('ImportTestConversation', convoSchema, 'conversations');
+    const Message = connection!.model('ImportTestMessage', messageSchema, 'messages');
+    await Conversation.init();
+    await Message.init();
+    const db = {
+      models: { Conversation, Message },
+      Types: mongoose.Types,
+    } as unknown as typeof mongoose;
+    const convos = createConversationMethods(db),
+      messages = createMessageMethods(db),
+      cleanup = createConversationImportMethods(db);
+    const user = binding.key.chatOwnerId;
+    const original = await Conversation.create({
+      user,
+      conversationId: 'occupied',
+      title: 'original',
+    });
+    const oldMessage = await Message.create({
+      user,
+      conversationId: 'occupied',
+      messageId: 'occupied-message',
+      text: 'original',
+    });
+    const conversationIds = ['fresh', 'occupied'];
+    const convoIds = [
+      new mongoose.Types.ObjectId().toHexString(),
+      new mongoose.Types.ObjectId().toHexString(),
+    ];
+    const msgIds = [
+      new mongoose.Types.ObjectId().toHexString(),
+      new mongoose.Types.ObjectId().toHexString(),
+    ];
+    await expect(
+      convos.bulkSaveConvos(
+        conversationIds.map((conversationId, i) => ({
+          _id: convoIds[i],
+          user,
+          conversationId,
+          title: 'import',
+        })),
+        true,
+      ),
+    ).rejects.toThrow();
+    await expect(
+      messages.bulkSaveMessages(
+        [
+          {
+            _id: msgIds[0],
+            user,
+            conversationId: 'fresh',
+            messageId: 'fresh-message',
+            text: 'import',
+          },
+          {
+            _id: msgIds[1],
+            user,
+            conversationId: 'fresh',
+            messageId: 'occupied-message',
+            text: 'import',
+          },
+        ],
+        true,
+        true,
+      ),
+    ).rejects.toThrow();
+    expect(await Conversation.countDocuments({})).toBe(2);
+    expect(await Message.countDocuments({})).toBe(2);
+    await cleanup.deleteImportedMessages({ user, conversationIds, recordIds: msgIds });
+    await cleanup.deleteImportedConversations({ user, conversationIds, recordIds: convoIds });
+    expect(await Conversation.findById(original._id).lean()).toMatchObject({ title: 'original' });
+    expect(await Message.findById(oldMessage._id).lean()).toMatchObject({
+      text: 'original',
+      conversationId: 'occupied',
+    });
+    expect(await Conversation.countDocuments({})).toBe(1);
+    expect(await Message.countDocuments({})).toBe(1);
+    await Conversation.collection.dropIndexes();
+    await Message.collection.dropIndexes();
+  });
 
   test('insert/readback and reconnect retain the immutable winner', async () => {
     await store.insertIfAbsent(binding);

@@ -45,21 +45,30 @@ interface Execution {
   background: boolean;
   uncertain?: boolean;
 }
+const admissionMessages: Readonly<Record<string, string>> = {
+  OPENSCHOOL_SCOPE_MISMATCH: '請另開新對話',
+  OPENSCHOOL_CONVERSATION_DELETED: '這段對話已刪除或正在刪除，請另開新對話。',
+  OPENSCHOOL_DELETION_PENDING: '對話仍有作業尚未確認結束，暫時無法完成刪除，請稍後再試。',
+};
 class AdmissionError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
   ) {
-    super(
-      code === 'OPENSCHOOL_SCOPE_MISMATCH' ? '請另開新對話' : 'Conversation admission unavailable',
-    );
+    super(admissionMessages[code] ?? '目前無法確認對話的使用資格，請稍後再試。');
   }
 }
 
-
 export interface CircleExecution {
-  beforeOptions(req: Request, res: Response, selected: { endpoint: string; model: string }, next: () => Promise<unknown>): Promise<unknown>;
-  wrap<Args extends unknown[]>(controller: (req: Request, res: Response, ...args: Args) => Promise<unknown>): (req: Request, res: Response, ...args: Args) => Promise<unknown>;
+  beforeOptions(
+    req: Request,
+    res: Response,
+    selected: { endpoint: string; model: string },
+    next: () => Promise<unknown>,
+  ): Promise<unknown>;
+  wrap<Args extends unknown[]>(
+    controller: (req: Request, res: Response, ...args: Args) => Promise<unknown>,
+  ): (req: Request, res: Response, ...args: Args) => Promise<unknown>;
   finalId(req: Request, fallback: string): string;
   assertId(req: Request | undefined, id: string): void;
   background(req: Request): void;
@@ -72,14 +81,28 @@ export interface CircleExecution {
   fence(owner: string, ids: string[], drain: () => Promise<void>): Promise<void>;
   validateUpdate(req: Request, res: Response, next: () => unknown): unknown;
   existingResponse(res: Response, value: unknown): unknown;
-  mutation(controller: (req: Request, res: Response) => Promise<unknown>): (req: Request, res: Response) => Promise<unknown>;
-  
+  mutation(
+    controller: (req: Request, res: Response) => Promise<unknown>,
+    storedScope?: boolean,
+  ): (req: Request, res: Response) => Promise<unknown>;
+  importBatch(
+    owner: string,
+    tenantId: string | undefined,
+    ids: string[],
+    write: () => Promise<void>,
+  ): Promise<void>;
+  respond(res: Response, error: unknown): unknown;
+  deletionError(res: Response & { send(body: string): unknown }, error: unknown): unknown;
 }
 export interface CircleExecutionOptions {
   enabled: boolean;
   enforceExisting: boolean;
   tenantId?: string;
-  binding: { namespace: string; timeoutMS: number; topology: { mode: 'standalone' } | { mode: 'replica-set'; setName: string } };
+  binding: {
+    namespace: string;
+    timeoutMS: number;
+    topology: { mode: 'standalone' } | { mode: 'replica-set'; setName: string };
+  };
 }
 
 /** Request identity is held outside browser data. Dependencies are trusted startup configuration. */
@@ -143,13 +166,18 @@ export function createCircleExecution(deps: Dependencies): CircleExecution {
     const store = deps.store();
     if (override && input !== id && typeof input === 'string' && GUID.test(input)) {
       const source = await store.read({ chatOwnerId: owner, conversationId: input });
-      if (source.kind !== 'absent') fail('OPENSCHOOL_SCOPE_MISMATCH', 409);
+      if (source.kind !== 'absent' && source.kind !== 'unbound')
+        fail('OPENSCHOOL_SCOPE_MISMATCH', 409);
     }
     const stored = await store.read(key);
     if (stored.kind === 'error' || stored.kind === 'unknown') fail();
     if (stored.kind === 'tombstone') fail('OPENSCHOOL_CONVERSATION_DELETED', 409);
     const state: Execution = { ...selected, id, key, entered: false, background: false };
     executions.set(req, state);
+    if (stored.kind === 'unbound') {
+      if (stored.pending || (await deps.presence(key, true)) !== 'owned') fail();
+      return; // Existing import/fork stays unbound; never infers a circle from client fields.
+    }
     if (stored.kind === 'absent') {
       const presence = await deps.presence(key);
       if (presence === 'foreign') fail('OPENSCHOOL_OWNER_MISMATCH', 403);
@@ -209,8 +237,15 @@ export function createCircleExecution(deps: Dependencies): CircleExecution {
     if (!known) deps.report(error);
     return res.status(known ? error.status : 503).json({
       code: known ? error.code : 'OPENSCHOOL_ADMISSION_UNAVAILABLE',
-      error: known ? error.message : 'Conversation admission unavailable',
+      error: known ? error.message : '目前無法確認對話的使用資格，請稍後再試。',
     });
+  }
+  function deletionError(res: Response & { send(body: string): unknown }, error: unknown) {
+    if (!guarding && !(error instanceof AdmissionError)) {
+      res.status(500);
+      return res.send('Error clearing conversations');
+    }
+    return respond(res, error);
   }
   async function beforeOptions(
     req: Request,
@@ -304,7 +339,7 @@ export function createCircleExecution(deps: Dependencies): CircleExecution {
     // A failed delete is retryable. Never expire/steal a possibly live provider execution.
     for (const id of ids) {
       if (GUID.test(id) && !(await deps.store().idle({ chatOwnerId: owner, conversationId: id }))) {
-        fail('OPENSCHOOL_DELETION_PENDING');
+        fail('OPENSCHOOL_DELETION_PENDING', 409);
       }
     }
   }
@@ -318,6 +353,25 @@ export function createCircleExecution(deps: Dependencies): CircleExecution {
     if (!guarding) return;
     await drain();
     await drained(owner, ids);
+  }
+  async function importBatch(
+    owner: string,
+    tenantId: string | undefined,
+    ids: string[],
+    write: () => Promise<void>,
+  ): Promise<void> {
+    if (!guarding) return write();
+    if ((tenantId ?? '') !== (deps.tenantId ?? '') || new Set(ids).size !== ids.length) fail();
+    const store = deps.store();
+    const operation = randomUUID();
+    const keys = ids.map((conversationId) => ({ chatOwnerId: owner, conversationId }));
+    // Any failure retains reservations. Never release a possibly active/ambiguous writer.
+    for (const key of keys) {
+      if ((await deps.presence(key)) !== 'absent' || !(await store.reserveImport(key, operation)))
+        fail('OPENSCHOOL_IMPORT_COLLISION', 409);
+    }
+    await write();
+    for (const key of keys) await store.release(key, operation);
   }
   function validateUpdate(req: Request, res: Response, next: () => unknown) {
     const id = req.body?.arg?.conversationId;
@@ -336,10 +390,15 @@ export function createCircleExecution(deps: Dependencies): CircleExecution {
       ? res.status(404).json({ error: 'Conversation not found' })
       : res.status(201).json(value);
   }
-  function mutation(controller: (req: Request, res: Response) => Promise<unknown>) {
+  function mutation(
+    controller: (req: Request, res: Response) => Promise<unknown>,
+    storedScope = false,
+  ) {
     return async (req: Request, res: Response) => {
       if (!guarding) return controller(req, res);
-      const id = req.params?.conversationId ?? '';
+      const id = req.params?.conversationId ?? req.body?.arg?.conversationId ?? '';
+      if (typeof id !== 'string')
+        return respond(res, new AdmissionError(400, 'OPENSCHOOL_ID_MISMATCH'));
       const key = { chatOwnerId: req.user?.id ?? '', conversationId: id };
       const admitted = { ...req, body: { ...req.body, conversationId: id } as RequestBody };
       try {
@@ -349,9 +408,11 @@ export function createCircleExecution(deps: Dependencies): CircleExecution {
           fail('OPENSCHOOL_CONVERSATION_NOT_FOUND', 404);
         const stored = GUID.test(id) ? await deps.store().read(key) : { kind: 'absent' as const };
         const endpoint =
-          req.body?.endpoint ?? (stored.kind === 'bound' ? stored.binding.scope.endpoint : '');
+          (!storedScope && req.body?.endpoint) ||
+          (stored.kind === 'bound' ? stored.binding.scope.endpoint : '');
         const model =
-          req.body?.model ?? (stored.kind === 'bound' ? stored.binding.scope.model : '');
+          (!storedScope && req.body?.model) ||
+          (stored.kind === 'bound' ? stored.binding.scope.model : '');
         // Only the route's destination is relevant; body override IDs have no write authority.
         delete admitted.body.overrideConvoId;
         await prepare(admitted, { endpoint, model });
@@ -370,6 +431,9 @@ export function createCircleExecution(deps: Dependencies): CircleExecution {
     };
   }
   return {
+    importBatch,
+    deletionError,
+    respond,
     beforeOptions,
     wrap,
     finalId,
@@ -390,7 +454,9 @@ export function createCircleExecution(deps: Dependencies): CircleExecution {
 
 /** Deployment identity/topology are server-only, alongside the metadata namespace and credentials.
  * Intentionally not a browser-visible configuration field; no automatic topology fallback. */
-export function circleExecutionOptions(env: Record<string, string | undefined>): CircleExecutionOptions {
+export function circleExecutionOptions(
+  env: Record<string, string | undefined>,
+): CircleExecutionOptions {
   const enabled = env.OPENSCHOOL_CIRCLE_ADMISSION_ENABLED === 'true';
   const mode = env.OPENSCHOOL_BINDING_TOPOLOGY;
   return {

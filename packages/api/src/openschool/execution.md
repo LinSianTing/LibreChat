@@ -1,6 +1,6 @@
 # SPEC34 conversation admission integration
 
-Source baseline: `6dcb7fac63a9445b75ae7ee19f29857f0127a06e`. This is a bounded
+Oct11 hardening baseline: `7852bde9ba751a02b8f1f6e3f94c9ab8e99a3486`. This is a bounded
 controller/fence candidate, not a deployment or a claim that every LibreChat write path is fenced.
 
 ## Runtime wiring
@@ -40,11 +40,33 @@ a subsequent delete request after the execution drains. Historical unbound execu
 legacy behavior; this is not a retrofit of every legacy write into a global transaction.
 
 No expiry/TTL/lease stealing is used for occupancy. Process crashes, ambiguous write/release results,
-or rejected trailing persistence may leave an operation ID indefinitely. This package supplies
-**no automatic recovery or manual reconciliation tool**. Operators must establish that no provider
-or persistence work can still run before any separately reviewed reconciliation. Do not delete
-tombstones or clear occupancy merely because time passed. Direct DB changes, TTL jobs, backup
-restoration and other unintegrated writers are outside this explicit-route guarantee.
+or rejected trailing persistence retain their operation IDs. Age, a missing local PID, a restarted
+web process, and an empty generation-job list do not prove provider/background persistence quiescent.
+
+### Controlled reconciliation (offline only)
+
+No HTTP route, startup hook, timer or deletion retry invokes reconciliation. `occupancy(key)` is a
+read-only exact-ID snapshot; `reconcileRetired(key, expectedOperations)` is an explicit data-layer
+primitive for a separately authorized maintenance session, **not a liveness detector**.
+
+1. Establish an authorized write-stop window for this exact deployment/tenant namespace. Stop
+   admissions, imports, all provider workers, background callbacks and persistence retries on all
+   replicas; prevent supervisors/queues from restarting them. A live service must not call this API.
+2. Record namespace, owner, conversation, source/build, writer inventory and operation snapshot in
+   private maintenance evidence. If any writer or delayed write can still run, stop; retain occupancy.
+3. Retire that exact key first. Tombstone is permanent and prevents future guarded admissions.
+   Re-read exact occupancy after retirement. Do not infer a new circle, restore a binding, or drop rows.
+4. Only after independently establishing quiescence, call `reconcileRetired` with the observed
+   operation array. Its single-document compare-and-set requires the same namespace/key,
+   tombstone state and exact operations. Any concurrent change/mismatch returns false without clear;
+   failures/unknown outcome require reread while the write-stop remains in force, never blind retry.
+5. Confirm the tombstone remains and `idle(key)` is true. Resume guarded services, then retry the
+   existing explicit delete route if physical removal is needed. Reconciliation itself deletes no
+   conversation/message/binding and never resurrects an ID. Preserve all receipts.
+
+This package tests the primitive on synthetic rows only; no live reconciliation was performed.
+Direct DB changes, TTL jobs, restoration and unintegrated writers are outside the explicit-route
+fence. Stopping only the local process is insufficient for a distributed deployment.
 
 ## Server configuration and rollback
 
@@ -75,22 +97,55 @@ Build API/data-schemas from the fixed reviewed source together before runtime us
 not be consumed through stale `dist`. The local focused tests load new code through Babel source;
 they do not certify a complete application build. Two-service HTTP E2E and TC review are separate.
 
-## Explicit remaining bulk-import boundary
+## Import collision boundary and mutation guards (Oct11)
 
-Read-only review confirms normal clone/import destinations are newly generated server UUIDv4;
-there is no demonstrated caller-selected destination in those routes. Existing bulk persistence
-still uses owner/ID upsert, and cleanup is scoped by generated conversation IDs rather than a
-receipt of only inserted rows. A forced/colliding destination could therefore overwrite/delete
-another row, including an attribution race before an interactive conversation is first saved.
-Random generation is not a concurrency proof. This package does not claim that theoretical path
-is closed and does not prohibit normal manual fork/import to conceal it.
+Normal import/fork/duplicate/shared-fork still use the builder's new server UUID destination.
+Before persistence, the guarded runtime claims a permanent `unbound` row in the same unique
+namespace/owner/conversation identity as interactive binding and tombstones. Exactly one first
+writer wins. A bound, retired or previously reserved destination cannot be overwritten. Pending
+imports hold occupancy; delete tombstones them and waits rather than permitting late recreation.
+Import completion removes only its operation ID; the row remains unbound permanently. Interactive
+admission refuses pending imports, and existing completed imports retain legacy unbound behavior.
+No browser circle, project, copied model or source binding creates attribution.
 
-The stronger follow-up is insert-only bulk writes, receipts identifying only this batch's inserts
-for partial-failure cleanup, and a shared creation reservation against interactive binding. It needs
-focused review of bulk message IDs, project/tag accounting and rollback. Per the bounded task, that
-data-layer expansion is deferred; no production rollout is authorized by this candidate.
+Only import bulk calls select insert-only mode; generic bulk methods retain their prior contract.
+Conversations and messages receive fresh server `_id` receipts before IO. The owner/tenant/logical
+IDs plus exact receipt IDs constrain partial-failure cleanup, so it cannot erase a colliding existing
+row. Message ID collisions fail inserts rather than update another conversation. Imported timestamps,
+project ownership validation and post-success tag accounting remain. An uncertain failure retains
+reservation/occupancy even after attempted cleanup: late DB completion must not permit ID reuse.
+A reservation acquired before a later batch collision is retained conservatively; no automatic sweep.
 
-## Verification receipts
+`PUT /messages/:conversationId/:messageId` (plain text and content part) and `/convos/update` rename
+now use the shared mutation guard. They reauthorize the stored circle/model through the fresh catalog,
+hold occupancy across writes, reject tombstones, and preserve legacy unbound edits. PUT additionally
+matches conversationId at the database update, including the provenance merge branch. The UI's token
+counting model cannot redirect the guard's scope. The existing separately guarded POST message save
+still validates its requested endpoint/model. Generic project filing and feedback are not repurposed
+as authoritative circle attribution.
+
+Deletion pending is classified as HTTP409 `OPENSCHOOL_DELETION_PENDING`; scope mismatch, retired
+conversation and unavailable admission have human-readable messages without identifiers. The existing
+OpenSchool gateway renderer already decodes the serialized body. TC withdrew the earlier raw-JSON
+inference; no renderer rewrite is included. Four focused rendering cases assert readable text and
+absence of raw code/payload. Actual browser/dual-service acceptance remains the parent's work.
+
+## Oct11 local verification boundary
+
+Typed-only checkpoint `b1978cc50ffd040c2322590cf3e4882fd1b3c854` adds explicit execution factory
+return contracts after runtime DTS caught TS9016; the earlier `b663ee373` array annotation alone was
+insufficient. Both checkpoint and candidate pass `transpileDeclaration` isolated-declaration probes.
+This is not a claim that the whole application builds. Runtime worker owns full current-package
+build/boot; parent owns final same-source E2E and TC owns independent fixed-source review.
+
+Local scripts/raw captures are under `.local/verification/circle-metadata/`, prefixed `oct11` or
+`run-*-oct11`. They use inherited local test dependencies with source mapping, not new dist output.
+Full workspace noEmit in this sparse tree cannot resolve all dependencies; expanded changed-module
+checking retains inherited Winston/Meili/lodash diagnostics separately from the focused passing check.
+Final receipt JSON records source commit, source-tree identity, commands, counts and exit codes.
+No push, merge, tag, deployment, old database deletion or other-container cleanup was performed.
+
+## Historical 7852 verification receipts
 
 Windows Node v24.18.0; inherited local unit tools, no installation. Final API run: 9 suites,
 542 passed / 0 skipped. Mongo 7 fixture: 13 passed / 0 skipped. Focused new-module strict noEmit:

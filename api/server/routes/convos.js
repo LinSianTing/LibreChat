@@ -595,7 +595,7 @@ router.delete('/', configMiddleware, async (req, res) => {
     res.status(201).json(dbResponse);
   } catch (error) {
     logger.error('Error clearing conversations', error);
-    res.status(500).send('Error clearing conversations');
+    circleExecution.deletionError(res, error);
   }
 });
 
@@ -621,7 +621,7 @@ router.delete('/all', configMiddleware, async (req, res) => {
     res.status(201).json(dbResponse);
   } catch (error) {
     logger.error('Error clearing conversations', error);
-    res.status(500).send('Error clearing conversations');
+    circleExecution.deletionError(res, error);
   }
 });
 
@@ -725,7 +725,7 @@ router.post(
   circleExecution.validateUpdate,
   validateConvoAccess,
   configMiddleware,
-  async (req, res) => {
+  circleExecution.mutation(async (req, res) => {
     const { conversationId, title } = req.body?.arg ?? {};
 
     if (!conversationId) {
@@ -766,7 +766,7 @@ router.post(
       logger.error('Error updating conversation', error);
       res.status(500).send('Error updating conversation');
     }
-  },
+  }, true),
 );
 
 const { importIpLimiter, importUserLimiter } = createImportLimiters();

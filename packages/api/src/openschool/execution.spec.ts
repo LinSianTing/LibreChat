@@ -26,6 +26,14 @@ function fixture(enabled = true, enforceExisting = false) {
   const rows = new Map<string, BindingRead>();
   const occupied = new Map<string, Set<string>>();
   const store: MongoBindingStore = {
+    reserveImport: jest.fn(async (key, operation) => {
+      if (rows.has(key.conversationId)) return false;
+      rows.set(key.conversationId, { kind: 'unbound', key, pending: true });
+      occupied.set(key.conversationId, new Set([operation]));
+      return true;
+    }),
+    occupancy: jest.fn(async (key) => [...(occupied.get(key.conversationId) ?? [])]),
+    reconcileRetired: jest.fn(async () => false),
     read: jest.fn(async (key) => rows.get(key.conversationId) ?? { kind: 'absent' as const }),
     insertIfAbsent: jest.fn(async (binding) => {
       if (!rows.has(binding.key.conversationId))
@@ -302,5 +310,39 @@ describe('controller circle execution coordination', () => {
     await f.runtime.retire(owner, [f.runtime.finalId(req, '')]);
     await expect(f.runtime.drained(owner, [f.runtime.finalId(req, '')])).rejects.toThrow();
     expect(f.report).toHaveBeenCalled();
+  });
+  test('import collision never runs writes; ambiguous import never frees occupancy', async () => {
+    const f = fixture();
+    const id = f.bind();
+    const write = jest.fn(async () => undefined);
+    await expect(f.runtime.importBatch(owner, undefined, [id], write)).rejects.toThrow();
+    expect(write).not.toHaveBeenCalled();
+    const fresh = randomUUID();
+    await expect(
+      f.runtime.importBatch(owner, undefined, [fresh], async () => {
+        throw new Error('uncertain');
+      }),
+    ).rejects.toThrow('uncertain');
+    expect(f.occupied.get(fresh)?.size).toBe(1);
+    expect(f.store.release).not.toHaveBeenCalled();
+    await f.runtime.retire(owner, [fresh]);
+    await expect(f.runtime.drained(owner, [fresh])).rejects.toThrow();
+  });
+  test('in-flight import cannot be adopted; completed import remains unbound', async () => {
+    const f = fixture();
+    const id = randomUUID();
+    await f.runtime.importBatch(owner, undefined, [id], async () => {
+      f.presence.mockResolvedValue('owned');
+      expect((await f.prepare(request({ conversationId: id }))).effect).not.toHaveBeenCalled();
+    });
+    f.rows.set(id, {
+      kind: 'unbound',
+      key: { chatOwnerId: owner, conversationId: id },
+      pending: false,
+    });
+    expect((await f.prepare(request({ conversationId: id }))).effect).toHaveBeenCalled();
+    expect(f.catalog).not.toHaveBeenCalled();
+    expect(f.store.insertIfAbsent).not.toHaveBeenCalled();
+    expect(f.store.release).toHaveBeenCalledTimes(1);
   });
 });

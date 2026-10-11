@@ -5,6 +5,7 @@ const {
   assertConversationImportContentAllowed,
   reportLocatorTraversalFailure,
   executeConversationImportWrites,
+  prepareConversationImportInserts,
 } = require('@librechat/api');
 const {
   getTenantId,
@@ -26,6 +27,7 @@ const {
   deleteImportedMessages,
   getFiles,
 } = require('~/models');
+const circleExecution = require('~/server/services/CircleExecution');
 const { FALLBACK_MODEL_BY_ENDPOINT } = require('./defaults');
 
 /**
@@ -215,20 +217,28 @@ class ImportBatchBuilder {
       conversationIds,
       ...(tenantId == null ? {} : { tenantId }),
     };
+    const inserts = prepareConversationImportInserts(this);
     const tags = this.conversations.flatMap((convo) => convo.tags);
 
     try {
-      await executeConversationImportWrites({
-        saveConversations: () => bulkSaveConvos(this.conversations),
-        saveMessages: () => bulkSaveMessages(this.messages, true),
-        updateTagCounts: () => bulkIncrementTagCounts(this.requestUserId, tags),
-        deleteMessages: () => deleteImportedMessages(cleanupScope),
-        deleteConversations: () => deleteImportedConversations(cleanupScope),
-        onTagCountError: (error) =>
-          logger.error(`Error updating imported tag counts: ${error.message}`),
-        onCleanupError: (error, resource) =>
-          logger.error(`Error cleaning imported ${resource}: ${error.message}`),
-      });
+      await circleExecution.importBatch(this.requestUserId, tenantId, conversationIds, () =>
+        executeConversationImportWrites({
+          saveConversations: () => bulkSaveConvos(inserts.conversations, true),
+          saveMessages: () => bulkSaveMessages(inserts.messages, true, true),
+          updateTagCounts: () => bulkIncrementTagCounts(this.requestUserId, tags),
+          deleteMessages: () =>
+            deleteImportedMessages({ ...cleanupScope, recordIds: inserts.messageRecordIds }),
+          deleteConversations: () =>
+            deleteImportedConversations({
+              ...cleanupScope,
+              recordIds: inserts.conversationRecordIds,
+            }),
+          onTagCountError: (error) =>
+            logger.error(`Error updating imported tag counts: ${error.message}`),
+          onCleanupError: (error, resource) =>
+            logger.error(`Error cleaning imported ${resource}: ${error.message}`),
+        }),
+      );
       logger.debug(
         `user: ${this.requestUserId} | Added ${this.conversations.length} conversations and ${this.messages.length} messages to the DB.`,
       );

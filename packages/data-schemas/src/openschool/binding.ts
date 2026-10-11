@@ -15,6 +15,7 @@ export type CircleBinding = Readonly<{
 export type BindingRead =
   | { kind: 'absent' }
   | { kind: 'bound'; binding: CircleBinding }
+  | { kind: 'unbound'; key: BindingKey; pending: boolean }
   | { kind: 'tombstone'; key: BindingKey }
   | { kind: 'unknown' | 'error' };
 

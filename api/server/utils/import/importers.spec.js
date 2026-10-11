@@ -1,3 +1,10 @@
+jest.mock('@librechat/api', () => ({
+  ...jest.requireActual('@librechat/api'),
+  ...jest.requireActual('../../../../packages/api/src/conversations/import'),
+}));
+jest.mock('~/server/services/CircleExecution', () => ({
+  importBatch: (_owner, _tenant, _ids, write) => write(),
+}));
 const fs = require('fs');
 const path = require('path');
 const {

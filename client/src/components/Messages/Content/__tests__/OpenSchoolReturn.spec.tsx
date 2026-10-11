@@ -66,6 +66,24 @@ describe('OpenSchool return link', () => {
     mockStartupData = { openschoolReturnUrl: RETURN_URL };
   });
 
+  it.each([
+    ['OPENSCHOOL_SCOPE_MISMATCH', '請另開新對話'],
+    ['OPENSCHOOL_CONVERSATION_DELETED', '這段對話已刪除或正在刪除，請另開新對話。'],
+    ['OPENSCHOOL_DELETION_PENDING', '對話仍有作業尚未確認結束，暫時無法完成刪除，請稍後再試。'],
+    ['OPENSCHOOL_ADMISSION_UNAVAILABLE', '目前無法確認對話的使用資格，請稍後再試。'],
+  ])('renders serialized %s through the existing gateway renderer', (code, error) => {
+    render(
+      <Error
+        text={JSON.stringify({ code, error })}
+        message={{ ...message, endpoint: 'OpenSchool' }}
+      />,
+    );
+    expect(screen.getByTestId('openschool-gateway-error')).toHaveTextContent(error);
+    expect(document.body.textContent).not.toContain(code);
+    expect(document.body.textContent).not.toContain('{"');
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
   it('renders a real link to the configured page for the refused circle, and keeps the text', () => {
     renderInChat(upstream(refusal(`${RETURN_URL}?circle=light`)));
 

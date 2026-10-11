@@ -724,6 +724,7 @@ export interface MessageMethods {
   bulkSaveMessages(
     messages: Array<Partial<IMessage>>,
     overrideTimestamp?: boolean,
+    insertOnly?: boolean,
   ): Promise<unknown>;
   recordMessage(params: {
     user: string;
@@ -789,7 +790,7 @@ export interface MessageMethods {
   updateMessage(
     userId: string,
     message: Partial<IMessage> & { newMessageId?: string },
-    metadata?: { context?: string },
+    metadata?: { context?: string; conversationIdFence?: string },
   ): Promise<Partial<IMessage>>;
   claimSubagentTaskResult(params: {
     userId: string;
@@ -1136,6 +1137,7 @@ export function createMessageMethods(mongoose: typeof import('mongoose')): Messa
   async function bulkSaveMessages(
     messages: Array<Record<string, unknown>>,
     overrideTimestamp = false,
+    insertOnly = false,
   ) {
     try {
       const Message = mongoose.models.Message as Model<IMessage>;
@@ -1159,6 +1161,15 @@ export function createMessageMethods(mongoose: typeof import('mongoose')): Messa
         if (provenance.promoteWholeMessage) {
           normalizedMessage.isUserSubmitted = true;
         }
+        if (insertOnly) {
+          if (
+            typeof normalizedMessage._id !== 'string' ||
+            !/^[0-9a-f]{24}$/.test(normalizedMessage._id)
+          )
+            throw new Error('Missing import receipt');
+          delete normalizedMessage.tenantId;
+          return { insertOne: { document: normalizedMessage } };
+        }
         return {
           updateOne: {
             filter: { messageId: message.messageId },
@@ -1168,7 +1179,11 @@ export function createMessageMethods(mongoose: typeof import('mongoose')): Messa
           },
         };
       });
-      const result = await tenantSafeBulkWrite(Message, bulkOps);
+      const result = await tenantSafeBulkWrite(
+        Message,
+        bulkOps,
+        insertOnly ? { timestamps: !overrideTimestamp } : undefined,
+      );
       return result;
     } catch (err) {
       logger.error('Error saving messages in bulk:', err);
@@ -2074,7 +2089,7 @@ export function createMessageMethods(mongoose: typeof import('mongoose')): Messa
   async function updateMessage(
     userId: string,
     message: { messageId: string; [key: string]: unknown },
-    metadata?: { context?: string },
+    metadata?: { context?: string; conversationIdFence?: string },
   ) {
     try {
       const Message = mongoose.models.Message as Model<IMessage>;
@@ -2085,17 +2100,24 @@ export function createMessageMethods(mongoose: typeof import('mongoose')): Messa
       );
       delete update.userSubmittedPaths;
       delete update.userSubmittedMessageFieldPaths;
+      const filter = {
+        messageId,
+        user: userId,
+        ...(metadata?.conversationIdFence == null
+          ? {}
+          : { conversationId: metadata.conversationIdFence }),
+      };
       const updatedMessage =
         submittedPaths.length > 0 || submittedMessageFields.length > 0
           ? await findOneAndMergeMessageProvenance(
               Message,
-              { messageId, user: userId },
+              filter,
               update,
               submittedPaths,
               submittedMessageFields,
               { upsert: false },
             )
-          : await Message.findOneAndUpdate({ messageId, user: userId }, update, { new: true });
+          : await Message.findOneAndUpdate(filter, update, { new: true });
 
       if (!updatedMessage) {
         throw new Error('Message not found or user not authorized.');

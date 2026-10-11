@@ -7,6 +7,8 @@ export interface ConversationImportCleanupScope {
   user: string;
   conversationIds: readonly string[];
   tenantId?: string;
+  /** Exact server-created document IDs; present (even empty) for collision-safe imports. */
+  recordIds?: readonly string[];
 }
 
 export interface ConversationImportMethods {
@@ -22,6 +24,7 @@ function createImportCleanupFilter<T>(
   conversationIds: readonly string[],
 ): FilterQuery<T> {
   return {
+    ...(scope.recordIds == null ? {} : { _id: { $in: scope.recordIds } }),
     user: scope.user,
     conversationId: { $in: conversationIds },
     ...(scope.tenantId == null ? { tenantId: { $exists: false } } : { tenantId: scope.tenantId }),

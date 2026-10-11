@@ -1,3 +1,6 @@
+jest.mock('~/server/services/CircleExecution', () => ({
+  importBatch: (_owner, _tenant, _ids, write) => write(),
+}));
 const actualApi = jest.requireActual('@librechat/api');
 const mockAssertModelBoundContent = jest.fn((...args) =>
   actualApi.assertModelBoundContent(...args),
@@ -5,6 +8,7 @@ const mockAssertModelBoundContent = jest.fn((...args) =>
 
 jest.mock('@librechat/api', () => ({
   ...jest.requireActual('@librechat/api'),
+  ...jest.requireActual('../../../../packages/api/src/conversations/import'),
   assertModelBoundContent: (...args) => mockAssertModelBoundContent(...args),
 }));
 
@@ -293,8 +297,14 @@ describe('ImportBatchBuilder content filtering', () => {
       user: 'user-123',
       conversationIds: [builder.conversations[0].conversationId],
     };
-    expect(deleteImportedMessages).toHaveBeenCalledWith(scope);
-    expect(deleteImportedConversations).toHaveBeenCalledWith(scope);
+    expect(deleteImportedMessages).toHaveBeenCalledWith({
+      ...scope,
+      recordIds: bulkSaveMessages.mock.calls[0][0].map((row) => row._id),
+    });
+    expect(deleteImportedConversations).toHaveBeenCalledWith({
+      ...scope,
+      recordIds: bulkSaveConvos.mock.calls[0][0].map((row) => row._id),
+    });
     expect(bulkSaveConvos.mock.invocationCallOrder[0]).toBeLessThan(
       bulkSaveMessages.mock.invocationCallOrder[0],
     );

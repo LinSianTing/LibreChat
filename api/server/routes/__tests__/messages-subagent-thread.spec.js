@@ -5,9 +5,9 @@ let mockCircleRuntime = createCircleExecution({ enabled: false });
 let mockCircleUser;
 jest.mock('~/server/services/CircleExecution', () => ({
   mutation:
-    (controller) =>
+    (controller, storedScope) =>
     (...args) =>
-      mockCircleRuntime.mutation(controller)(...args),
+      mockCircleRuntime.mutation(controller, storedScope)(...args),
 }));
 
 const mockIsSubagentThreadWriteBlocked = jest.fn();
@@ -111,6 +111,76 @@ describe('message mutation policy for durable subagent threads', () => {
         content: [],
       },
     ]);
+  });
+
+  it.each(
+    ['text', 'part'].flatMap((edit) =>
+      ['revoked', 'deleted', 'pending', 'allowed', 'legacy'].map((state) => [edit, state]),
+    ),
+  )('PUT %s respects %s circle admission and occupancy', async (edit, state) => {
+    const conversationId = '33333333-3333-4333-8333-333333333333';
+    mockCircleUser = {
+      id: '111111111111111111111111',
+      memberId: '22222222-2222-4222-8222-222222222222',
+    };
+    const key = { chatOwnerId: mockCircleUser.id, conversationId };
+    const scope = {
+      endpoint: 'OpenSchool',
+      model: 'circle-a',
+      circleId: '44444444-4444-4444-8444-444444444444',
+    };
+    const release = jest.fn();
+    const acquire = jest.fn(async () => state !== 'pending');
+    mockCircleRuntime = createCircleExecution({
+      enabled: true,
+      presence: async () => 'owned',
+      report: jest.fn(),
+      store: () => ({
+        read: async () => {
+          if (state === 'legacy') return { kind: 'absent' };
+          if (state === 'deleted') return { kind: 'tombstone', key };
+          return {
+            kind: 'bound',
+            binding: { version: 1, key, memberId: mockCircleUser.memberId, scope },
+          };
+        },
+        acquire,
+        release,
+      }),
+      scope: async () =>
+        state === 'revoked' ? { kind: 'unavailable' } : { kind: 'resolved', value: scope },
+    });
+    mockIsSubagentThreadWriteBlocked.mockResolvedValue(false);
+    db.getMessages.mockResolvedValue([
+      {
+        messageId: 'message-1',
+        conversationId,
+        text: 'old',
+        content: [{ type: 'text', text: 'old' }],
+      },
+    ]);
+    db.updateMessage.mockImplementation(async () => {
+      if (state !== 'legacy') expect(acquire).toHaveBeenCalledTimes(1);
+      expect(release).not.toHaveBeenCalled();
+      return { conversationId, messageId: 'message-1' };
+    });
+    const result = await request(app)
+      .put(`/api/messages/${conversationId}/message-1`)
+      .send({
+        text: 'edited',
+        model: 'token-counter-model',
+        ...(edit === 'part' ? { index: 0 } : {}),
+      });
+    if (state === 'allowed' || state === 'legacy') {
+      expect(result.status).toBe(200);
+      expect(db.updateMessage).toHaveBeenCalledWith(mockCircleUser.id, expect.anything(), {
+        conversationIdFence: conversationId,
+      });
+      expect(release).toHaveBeenCalledTimes(state === 'allowed' ? 1 : 0);
+    } else {
+      expect(result.status).toBe(state === 'revoked' ? 503 : 409);
+      expect(db.updateMessage).not.toHaveBeenCalled();
+    }
   });
 
   it.each(['circle', 'endpoint', 'deleted'])(

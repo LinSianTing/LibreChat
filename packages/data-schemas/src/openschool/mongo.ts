@@ -7,7 +7,7 @@ interface BindingRow {
   namespace: string;
   chatOwnerId: string;
   conversationId: string;
-  state: 'bound' | 'tombstone';
+  state: 'bound' | 'unbound' | 'tombstone';
   version?: number;
   memberId?: string;
   endpoint?: string;
@@ -31,6 +31,11 @@ export interface MongoBindingStore extends BindingStore {
   /** Durable occupancy, never expires or steals an execution of uncertain outcome. */
   acquire(binding: CircleBinding, operationId: string): Promise<boolean>;
   release(key: BindingKey, operationId: string): Promise<void>;
+  reserveImport(key: BindingKey, operationId: string): Promise<boolean>;
+  occupancy(key: BindingKey): Promise<readonly string[]>;
+  /** Offline-only: caller must first stop ALL provider/persistence writers and prevent restart.
+   * Exact snapshot CAS on a permanent tombstone; never invoked by request/timer/startup code. */
+  reconcileRetired(key: BindingKey, expectedOperations: readonly string[]): Promise<boolean>;
   idle(key: BindingKey): Promise<boolean>;
   ownerKeys(chatOwnerId: string): Promise<BindingKey[]>;
 }
@@ -113,7 +118,7 @@ export function createMongoBindingStore(
       namespace: { type: String, required: true, immutable: true },
       chatOwnerId: { type: String, required: true, immutable: true },
       conversationId: { type: String, required: true, immutable: true },
-      state: { type: String, required: true, enum: ['bound', 'tombstone'] },
+      state: { type: String, required: true, enum: ['bound', 'unbound', 'tombstone'] },
       version: Number,
       memberId: String,
       endpoint: String,
@@ -211,6 +216,10 @@ export function createMongoBindingStore(
       if (row.state === 'tombstone') {
         return { kind: 'tombstone', key: storedKey };
       }
+      if (row.state === 'unbound') {
+        if (!Array.isArray(row.operations)) return { kind: 'error' };
+        return { kind: 'unbound', key: storedKey, pending: row.operations.length !== 0 };
+      }
       const binding: CircleBinding = {
         version: 1,
         key: storedKey,
@@ -255,7 +264,7 @@ export function createMongoBindingStore(
         chatOwnerId: row.chatOwnerId,
         conversationId: row.conversationId,
       });
-      if (winner.kind !== 'bound' && winner.kind !== 'tombstone') {
+      if (winner.kind !== 'bound' && winner.kind !== 'tombstone' && winner.kind !== 'unbound') {
         throw new Error('Binding conflict could not be read');
       }
     }
@@ -309,6 +318,64 @@ export function createMongoBindingStore(
     return result.matchedCount === 1;
   }
 
+  // Exclusive first writer, shared with interactive attribution and retirement.
+  // Reservation is permanent: a completed import must never later become fresh interactive.
+  async function reserveImport(key: BindingKey, operationId: string): Promise<boolean> {
+    if (!matches(guidPattern, operationId)) throw new Error('Invalid import occupancy');
+    const row = { ...identity(key), state: 'unbound' as const, operations: [operationId] };
+    await checkTopology();
+    try {
+      const result = await Model.updateOne(
+        { _id: row._id },
+        { $setOnInsert: row },
+        writeOptions,
+      ).exec();
+      return result.upsertedCount === 1;
+    } catch (error) {
+      if (duplicateKey(error)) return false;
+      throw error; // Unknown outcome retains reservation/occupancy, never retries as a new writer.
+    }
+  }
+
+  /** Read-only reconciliation evidence. No timeout or process identity proves a writer dead. */
+  async function occupancy(key: BindingKey): Promise<readonly string[]> {
+    await checkTopology();
+    const row = await Model.findOne(identity(key))
+      .select({ operations: 1 })
+      .read('primary')
+      .readConcern(mode === 'standalone' ? 'local' : 'linearizable')
+      .setOptions({ maxTimeMS: timeoutMS, timeoutMS })
+      .lean()
+      .exec();
+    if (
+      !row ||
+      (row.operations !== undefined &&
+        (!Array.isArray(row.operations) || row.operations.some((id) => !matches(guidPattern, id))))
+    )
+      throw new Error('Invalid occupancy evidence');
+    return Object.freeze([...(row.operations ?? [])]);
+  }
+
+  async function reconcileRetired(
+    key: BindingKey,
+    expectedOperations: readonly string[],
+  ): Promise<boolean> {
+    if (
+      !Array.isArray(expectedOperations) ||
+      expectedOperations.some((id) => !matches(guidPattern, id)) ||
+      new Set(expectedOperations).size !== expectedOperations.length
+    )
+      throw new Error('Invalid occupancy evidence');
+    const snapshot = [...expectedOperations];
+    await checkTopology();
+    const result = await Model.updateOne(
+      { ...identity(key), state: 'tombstone', operations: snapshot },
+      { $set: { operations: [] } },
+      { ...writeOptions, upsert: false },
+    ).exec();
+    return result.matchedCount === 1;
+  }
+
   async function release(key: BindingKey, operationId: string): Promise<void> {
     if (!matches(guidPattern, operationId)) {
       throw new Error('Invalid binding occupancy');
@@ -355,5 +422,16 @@ export function createMongoBindingStore(
     return rows.map(({ conversationId }) => ({ chatOwnerId, conversationId }));
   }
 
-  return { read, insertIfAbsent, tombstone, acquire, release, idle, ownerKeys };
+  return {
+    read,
+    insertIfAbsent,
+    tombstone,
+    acquire,
+    release,
+    idle,
+    ownerKeys,
+    reserveImport,
+    occupancy,
+    reconcileRetired,
+  };
 }
