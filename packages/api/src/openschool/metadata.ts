@@ -44,11 +44,13 @@ export interface MetadataDependencies {
 
 export interface ConversationMetadataCandidate extends MetadataScope {
   version: 1;
+  range: 'all' | '7d';
+  since: string | null;
   items: Array<ConversationMetadata & { circle: string; owner: string }>;
   nextCursor: string | null;
 }
 
-function scopeFrom(value: unknown): MetadataScope {
+function scopeFrom(value: unknown, now: number): MetadataScope {
   if (
     !isRecord(value) ||
     value.version !== 1 ||
@@ -58,7 +60,13 @@ function scopeFrom(value: unknown): MetadataScope {
     !matches(guid, value.circle) ||
     !matches(ownerId, value.owner) ||
     (value.view !== 'mine' && value.view !== 'manager') ||
-    (value.view === 'mine' && value.actor !== value.member)
+    (value.view === 'mine' && value.actor !== value.member) ||
+    !(value.range === undefined || value.range === 'all'
+      ? value.since === undefined || value.since === null
+      : value.range === '7d' &&
+        validDate(value.since) &&
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value.since) &&
+        Date.parse(value.since) <= now)
   ) {
     throw failure(503);
   }
@@ -68,6 +76,8 @@ function scopeFrom(value: unknown): MetadataScope {
     circle: value.circle,
     owner: value.owner,
     view: value.view,
+    range: value.range === '7d' ? '7d' : 'all',
+    since: typeof value.since === 'string' ? value.since : null,
   };
 }
 
@@ -149,7 +159,7 @@ function cursorCodec(key: string, namespace: string, now: () => number) {
   };
 }
 
-function validRows(rows: ConversationMetadata[]): boolean {
+function validRows(rows: ConversationMetadata[], scope: MetadataScope): boolean {
   return (
     Array.isArray(rows) &&
     rows.length <= 51 &&
@@ -162,6 +172,7 @@ function validRows(rows: ConversationMetadata[]): boolean {
         validDate(row.createdAt) &&
         validDate(row.updatedAt) &&
         row.updatedAt >= row.createdAt &&
+        (scope.range !== '7d' || row.updatedAt >= scope.since!) &&
         Number.isSafeInteger(row.savedUserTurns) &&
         row.savedUserTurns >= 0 &&
         (i === 0 ||
@@ -221,7 +232,7 @@ export function createConversationMetadataService(
         await response.body?.cancel();
         throw failure(response.status === 401 || response.status === 403 ? response.status : 503);
       }
-      scope = scopeFrom(await boundedJson(response));
+      scope = scopeFrom(await boundedJson(response), now());
     } catch (error) {
       if (isRecord(error) && (error.status === 401 || error.status === 403)) {
         throw error;
@@ -233,7 +244,7 @@ export function createConversationMetadataService(
     let rows: ConversationMetadata[];
     try {
       rows = await deps.query(scope, after);
-      if (!validRows(rows)) {
+      if (!validRows(rows, scope)) {
         throw failure(503);
       }
     } catch {
@@ -252,6 +263,8 @@ export function createConversationMetadataService(
     return {
       version: 1,
       ...scope,
+      range: scope.range ?? 'all',
+      since: scope.since ?? null,
       items,
       nextCursor:
         rows.length > 50

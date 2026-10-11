@@ -583,6 +583,38 @@ fixtureTests('Mongo 7.0.43 standalone controlled Docker fixture', () => {
     expect(next[1].id > next[0].id).toBe(true);
   });
 
+  test('metadata 7d filters inclusively before pagination and preserves all range', async () => {
+    const since = '2026-10-04T00:00:00.000Z';
+    for (let i = 0; i < 54; i++) {
+      const id = `44444444-4444-4444-8444-${i.toString().padStart(12, '0')}`;
+      await store.insertIfAbsent({ ...binding, key: { ...binding.key, conversationId: id } });
+      await connection!.collection('conversations').insertOne({
+        conversationId: id,
+        user: scope.owner,
+        title: `range-${i}`,
+        createdAt: new Date('2026-10-01T00:00:00.000Z'),
+        updatedAt: new Date(i === 53 ? '2026-10-03T23:59:59.999Z' : since),
+      });
+    }
+    const query = createConversationMetadataQuery(connection!, options);
+    const ranged = { ...scope, range: '7d' as const, since };
+    const first = await query(ranged);
+    expect(first).toHaveLength(51);
+    const after = { id: first[49].id, updatedAt: first[49].updatedAt };
+    const second = await query(ranged, after);
+    expect(second).toHaveLength(3);
+    expect(second.every((row) => row.updatedAt === since)).toBe(true);
+    expect(second[0].id).toBe(first[50].id);
+    expect(await query({ ...scope, range: 'all', since: null }, after)).toHaveLength(4);
+    const pipeline = conversationMetadataPipeline(options.namespace, undefined, ranged);
+    const lowerBoundIndex = pipeline.findIndex((stage) => JSON.stringify(stage).includes('$gte'));
+    expect(lowerBoundIndex).toBeGreaterThan(-1);
+    expect(lowerBoundIndex).toBeLessThan(pipeline.findIndex((stage) => '$sort' in stage));
+    expect(lowerBoundIndex).toBeLessThan(pipeline.findIndex((stage) => '$limit' in stage));
+    await expect(query({ ...scope, range: 'all', since })).rejects.toThrow();
+    await expect(query({ ...scope, range: '7d', since: null })).rejects.toThrow();
+  });
+
   test('metadata aggregate failure is an error, never a successful empty list', async () => {
     const admin = connection!.db!.admin();
     await admin.command({

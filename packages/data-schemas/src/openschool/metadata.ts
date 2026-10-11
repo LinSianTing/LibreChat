@@ -7,6 +7,8 @@ export interface MetadataScope {
   owner: string;
   circle: string;
   view: 'mine' | 'manager';
+  range?: 'all' | '7d';
+  since?: string | null;
 }
 export interface MetadataPosition {
   updatedAt: string;
@@ -77,6 +79,7 @@ export function conversationMetadataPipeline(
     },
     { $unwind: '$conversation' },
     { $replaceRoot: { newRoot: '$conversation' } },
+    ...(scope.range === '7d' ? [{ $match: { updatedAt: { $gte: new Date(scope.since!) } } }] : []),
     ...(after
       ? [
           {
@@ -152,7 +155,14 @@ export function createConversationMetadataQuery(
       (tenantId !== undefined && (!tenantId.trim() || tenantId.trim() !== tenantId)) ||
       !/^[0-9a-f]{24}$/.test(scope.owner) ||
       !guid.test(scope.member) ||
-      !guid.test(scope.circle)
+      !guid.test(scope.circle) ||
+      !(scope.range === undefined || scope.range === 'all'
+        ? scope.since === undefined || scope.since === null
+        : scope.range === '7d' &&
+          typeof scope.since === 'string' &&
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(scope.since) &&
+          Number.isFinite(Date.parse(scope.since)) &&
+          new Date(scope.since).toISOString() === scope.since)
     ) {
       throw new Error('Metadata storage configuration unavailable');
     }

@@ -12,6 +12,8 @@ const scope: MetadataScope = {
   circle: '22222222-2222-4222-8222-222222222222',
   owner: '111111111111111111111111',
   view: 'mine',
+  range: 'all',
+  since: null,
 };
 const row = (i: number): ConversationMetadata => ({
   id: `33333333-3333-4333-8333-${i.toString().padStart(12, '0')}`,
@@ -21,7 +23,7 @@ const row = (i: number): ConversationMetadata => ({
   savedUserTurns: 3,
 });
 function setup(env: Record<string, string | undefined> = {}) {
-  let time = 1000000;
+  let time = Date.parse('2026-10-11T00:00:00.000Z');
   const fetchImpl = jest.fn().mockImplementation(
     async () =>
       new Response(
@@ -65,8 +67,8 @@ function setup(env: Record<string, string | undefined> = {}) {
     query,
     fetchImpl,
     resolveProfile,
-    advance: () => {
-      time += 300001;
+    advance: (milliseconds = 300001) => {
+      time += milliseconds;
     },
   };
 }
@@ -317,4 +319,66 @@ test('revoked grant blocks continuation before database access', async () => {
   f.fetchImpl.mockResolvedValueOnce(new Response('{}', { status: 403 }));
   expect((await f.post({ grant: 'x', cursor: first.body.nextCursor })).status).toBe(403);
   expect(f.query).toHaveBeenCalledTimes(1);
+});
+
+const resolved = (change: object) =>
+  Response.json({ version: 1, audience: 'openschool-chat-metadata-v1', ...scope, ...change });
+const since = '2026-10-04T00:00:00.000Z';
+
+test.each([
+  { range: 'other', since: null },
+  { range: null, since: null },
+  { range: 'all', since },
+  { since },
+  { range: '7d', since: null },
+  { range: '7d' },
+  { range: '7d', since: '2026-10-04T00:00:00Z' },
+  { range: '7d', since: '2026-10-04T00:00:00.000+00:00' },
+  { range: '7d', since: '2026-02-30T00:00:00.000Z' },
+  { range: '7d', since: '2026-10-11T00:00:00.001Z' },
+])('rejects invalid range/date combination before querying: %p', async (change) => {
+  const f = setup();
+  f.fetchImpl.mockResolvedValueOnce(resolved(change));
+  expect((await f.post()).status).toBe(503);
+  expect(f.query).not.toHaveBeenCalled();
+});
+
+test('omitted legacy range normalizes to explicit all/null', async () => {
+  const f = setup();
+  f.fetchImpl.mockResolvedValueOnce(resolved({ range: undefined, since: undefined }));
+  expect((await f.post()).body).toMatchObject({ range: 'all', since: null });
+  expect(f.query).toHaveBeenCalledWith(scope, undefined);
+});
+
+test('7d lower bound is inclusive and invalid query rows fail closed', async () => {
+  const f = setup();
+  f.fetchImpl.mockImplementation(async () => resolved({ range: '7d', since }));
+  f.query.mockResolvedValueOnce([{ ...row(1), updatedAt: since }]);
+  expect((await f.post()).body).toMatchObject({
+    range: '7d',
+    since,
+    items: [{ updatedAt: since }],
+  });
+  f.query.mockResolvedValueOnce([{ ...row(1), updatedAt: '2026-10-03T23:59:59.999Z' }]);
+  expect((await f.post()).status).toBe(503);
+});
+
+test('7d continuation retains its grant anchor and cannot cross range or since', async () => {
+  const f = setup();
+  f.fetchImpl.mockImplementation(async () => resolved({ range: '7d', since }));
+  f.query.mockResolvedValueOnce(Array.from({ length: 51 }, (_, i) => row(i)));
+  const first = await f.post();
+  expect(first.body).toMatchObject({ range: '7d', since });
+  const cursor = first.body.nextCursor;
+  f.advance(120000);
+  expect((await f.post({ grant: 'next-grant', cursor })).status).toBe(200);
+  expect(f.query).toHaveBeenLastCalledWith(
+    { ...scope, range: '7d', since },
+    { id: row(49).id, updatedAt: row(49).updatedAt },
+  );
+  f.fetchImpl.mockResolvedValueOnce(resolved({ range: 'all', since: null }));
+  expect((await f.post({ grant: 'other-range', cursor })).status).toBe(400);
+  f.fetchImpl.mockResolvedValueOnce(resolved({ range: '7d', since: '2026-10-04T00:00:00.001Z' }));
+  expect((await f.post({ grant: 'other-anchor', cursor })).status).toBe(400);
+  expect(f.query).toHaveBeenCalledTimes(2);
 });
