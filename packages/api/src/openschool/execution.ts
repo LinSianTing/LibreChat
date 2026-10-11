@@ -282,7 +282,7 @@ export function createCircleExecution(deps: Dependencies) {
       }
     }
   }
-  async function retireOwner(owner: string) {
+  async function retireOwner(owner: string): Promise<string[]> {
     if (!guarding) return [];
     const ids = (await deps.store().ownerKeys(owner)).map((key) => key.conversationId);
     await retire(owner, ids);
