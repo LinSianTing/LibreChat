@@ -332,6 +332,7 @@ const startServer = async () => {
   });
 
   /* Middleware */
+  app.use('/internal/openschool/v1/conversation-metadata', require('./routes/openschoolMetadata'));
   app.use(requestContextMiddleware);
   app.use('/api/agents/chat', agentStartupIngressMiddleware);
   app.use(metricsMiddleware);

@@ -1,3 +1,4 @@
+const circleExecution = require('~/server/services/CircleExecution');
 const crypto = require('crypto');
 const fetch = require('node-fetch');
 const { logger } = require('@librechat/data-schemas');
@@ -471,6 +472,7 @@ class BaseClient {
     let responseMessageId =
       opts.responseMessageId ?? opts.preallocatedResponseMessageId ?? crypto.randomUUID();
     let head = isEdited ? responseMessageId : parentMessageId;
+    circleExecution.assertId(this.options?.req, conversationId);
     this.currentMessages = (await this.loadHistory(conversationId, head)) ?? [];
     this.conversationId = conversationId;
 

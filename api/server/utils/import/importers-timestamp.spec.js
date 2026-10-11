@@ -1,3 +1,10 @@
+jest.mock('@librechat/api', () => ({
+  ...jest.requireActual('@librechat/api'),
+  ...jest.requireActual('../../../../packages/api/src/conversations/import'),
+}));
+jest.mock('~/server/services/CircleExecution', () => ({
+  importBatch: (_owner, _tenant, _ids, write) => write(),
+}));
 const { logger } = require('@librechat/data-schemas');
 const { Constants } = require('librechat-data-provider');
 const { ImportBatchBuilder } = require('./importBatchBuilder');

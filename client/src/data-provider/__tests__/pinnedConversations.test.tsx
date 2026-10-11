@@ -523,8 +523,15 @@ describe('pinned list cache synchronization', () => {
 });
 
 describe('delete mutation failure recovery', () => {
-  it('reports a failed delete without removing cached chats and allows a successful retry', async () => {
-    const error = new Error('Request failed with status code 500');
+  it.each([
+    new Error('Request failed with status code 500'),
+    {
+      response: {
+        status: 409,
+        data: { code: 'OPENSCHOOL_DELETION_PENDING', error: 'private details' },
+      },
+    },
+  ])('preserves cached chats after %p and allows a successful retry', async (error) => {
     deleteConversation.mockRejectedValueOnce(error).mockResolvedValueOnce({
       acknowledged: true,
       deletedCount: 1,

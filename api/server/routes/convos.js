@@ -1,3 +1,4 @@
+const circleExecution = require('~/server/services/CircleExecution');
 const multer = require('multer');
 const express = require('express');
 const { sleep } = require('@librechat/agents');
@@ -395,8 +396,10 @@ async function drainDeletedAgentGenerations(
     {
       allowEmpty: true,
       beforeDelete: async (ids) => {
+        await circleExecution.retire(userId, ids);
         await deletion?.remember(ids);
         await confirmAgentGenerationsDrained(userId, ids, [], tenantId);
+        await circleExecution.drained(userId, ids);
         await deletion?.remember(ids);
       },
     },
@@ -429,12 +432,18 @@ async function withAgentOwnerDeletionFence(userId, tenantId, deletion, recoverPe
 }
 
 async function deleteOwnerConversationPersistence(userId, filter, tenantId, checkpointer) {
+  const circleIds = await circleExecution.retireOwner(userId);
+  await circleExecution.fence(userId, circleIds, () =>
+    confirmAgentGenerationsDrained(userId, circleIds, [], tenantId),
+  );
   const deletion = await openCheckpointDeletion(userId, tenantId, undefined, checkpointer);
   const result = await db.deleteConvos(userId, filter, {
     allowEmpty: true,
     beforeDelete: async (conversationIds) => {
+      await circleExecution.retire(userId, conversationIds);
       await deletion.remember(conversationIds);
       await confirmAgentGenerationsDrained(userId, conversationIds, [], tenantId);
+      await circleExecution.drained(userId, conversationIds);
       await deletion.remember(conversationIds);
     },
   });
@@ -464,6 +473,7 @@ router.delete('/', configMiddleware, async (req, res) => {
   }
 
   if (conversationId) {
+    await circleExecution.retire(req.user.id, [conversationId]);
     filter = { conversationId };
   } else if (source === 'button') {
     return res.status(200).send('No conversationId provided');
@@ -506,11 +516,16 @@ router.delete('/', configMiddleware, async (req, res) => {
         tenantId,
       );
       await subagentThreadTaskStore.cancelPlan(cancellationPlan);
+      await circleExecution.fence(req.user.id, [filter.conversationId], () =>
+        confirmAgentGenerationsDrained(req.user.id, [filter.conversationId], [], tenantId),
+      );
       dbResponse = await db.deleteConvos(req.user.id, filter, {
         allowEmpty: true,
         beforeDelete: async (conversationIds) => {
+          await circleExecution.retire(req.user.id, conversationIds);
           await checkpointDeletion.remember(conversationIds);
           await confirmAgentGenerationsDrained(req.user.id, conversationIds, [], tenantId);
+          await circleExecution.drained(req.user.id, conversationIds);
           await checkpointDeletion.remember(conversationIds);
         },
       });
@@ -580,7 +595,7 @@ router.delete('/', configMiddleware, async (req, res) => {
     res.status(201).json(dbResponse);
   } catch (error) {
     logger.error('Error clearing conversations', error);
-    res.status(500).send('Error clearing conversations');
+    circleExecution.deletionError(res, error);
   }
 });
 
@@ -606,7 +621,7 @@ router.delete('/all', configMiddleware, async (req, res) => {
     res.status(201).json(dbResponse);
   } catch (error) {
     logger.error('Error clearing conversations', error);
-    res.status(500).send('Error clearing conversations');
+    circleExecution.deletionError(res, error);
   }
 });
 
@@ -705,48 +720,54 @@ const MAX_CONVO_TITLE_LENGTH = 1024;
  * @param {string} req.body.arg.title - The new title for the conversation.
  * @returns {object} 201 - The updated conversation object.
  */
-router.post('/update', validateConvoAccess, configMiddleware, async (req, res) => {
-  const { conversationId, title } = req.body?.arg ?? {};
+router.post(
+  '/update',
+  circleExecution.validateUpdate,
+  validateConvoAccess,
+  configMiddleware,
+  circleExecution.mutation(async (req, res) => {
+    const { conversationId, title } = req.body?.arg ?? {};
 
-  if (!conversationId) {
-    return res.status(400).json({ error: 'conversationId is required' });
-  }
-
-  if (title === undefined) {
-    return res.status(400).json({ error: 'title is required' });
-  }
-
-  if (typeof title !== 'string') {
-    return res.status(400).json({ error: 'title must be a string' });
-  }
-
-  const sanitizedTitle = title.trim().slice(0, MAX_CONVO_TITLE_LENGTH);
-  if (req.config?.filters != null) {
-    const finding = inspectContent(extractConversationTitleContent({ title: sanitizedTitle }), {
-      filters: req.config.filters,
-    });
-    if (finding != null) {
-      return res.status(400).json(contentFilterBlockResponse(finding));
+    if (!conversationId) {
+      return res.status(400).json({ error: 'conversationId is required' });
     }
-  }
 
-  try {
-    const dbResponse = await db.saveConvo(
-      {
-        userId: req?.user?.id,
-        isTemporary: req?.resolvedConversation?.isTemporary,
-        expiredAt: req?.resolvedConversation?.expiredAt,
-        interfaceConfig: req?.config?.interfaceConfig,
-      },
-      { conversationId, title: sanitizedTitle },
-      { context: `POST /api/convos/update ${conversationId}` },
-    );
-    res.status(201).json(dbResponse);
-  } catch (error) {
-    logger.error('Error updating conversation', error);
-    res.status(500).send('Error updating conversation');
-  }
-});
+    if (title === undefined) {
+      return res.status(400).json({ error: 'title is required' });
+    }
+
+    if (typeof title !== 'string') {
+      return res.status(400).json({ error: 'title must be a string' });
+    }
+
+    const sanitizedTitle = title.trim().slice(0, MAX_CONVO_TITLE_LENGTH);
+    if (req.config?.filters != null) {
+      const finding = inspectContent(extractConversationTitleContent({ title: sanitizedTitle }), {
+        filters: req.config.filters,
+      });
+      if (finding != null) {
+        return res.status(400).json(contentFilterBlockResponse(finding));
+      }
+    }
+
+    try {
+      const dbResponse = await db.saveConvo(
+        {
+          userId: req?.user?.id,
+          isTemporary: req?.resolvedConversation?.isTemporary,
+          expiredAt: req?.resolvedConversation?.expiredAt,
+          interfaceConfig: req?.config?.interfaceConfig,
+        },
+        { conversationId, title: sanitizedTitle },
+        { context: `POST /api/convos/update ${conversationId}`, noUpsert: true },
+      );
+      circleExecution.existingResponse(res, dbResponse);
+    } catch (error) {
+      logger.error('Error updating conversation', error);
+      res.status(500).send('Error updating conversation');
+    }
+  }, true),
+);
 
 const { importIpLimiter, importUserLimiter } = createImportLimiters();
 /** Fork and duplicate share one rate-limit budget (same "clone" operation class) */

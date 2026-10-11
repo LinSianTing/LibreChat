@@ -1,4 +1,17 @@
 const { EventEmitter } = require('events');
+const { createCircleExecution } = require('../../../../../packages/api/src/openschool/execution');
+let mockCircleRuntime = createCircleExecution({ enabled: false });
+jest.mock('~/server/services/CircleExecution', () => ({
+  wrap:
+    (controller) =>
+    (...args) =>
+      mockCircleRuntime.wrap(controller)(...args),
+  finalId: (...args) => mockCircleRuntime.finalId(...args),
+  background: (...args) => mockCircleRuntime.background(...args),
+  settle: (...args) => mockCircleRuntime.settle(...args),
+  complete: (...args) => mockCircleRuntime.complete(...args),
+  release: (...args) => mockCircleRuntime.release(...args),
+}));
 
 const mockLogger = {
   debug: jest.fn(),
@@ -451,6 +464,7 @@ function nextTick() {
 
 describe('ResumableAgentController resume metadata', () => {
   beforeEach(() => {
+    mockCircleRuntime = createCircleExecution({ enabled: false });
     jest.clearAllMocks();
     mockMCPContexts = new WeakMap();
     mockCheckAndIncrementPendingRequest.mockResolvedValue({ allowed: true });
@@ -705,6 +719,62 @@ describe('ResumableAgentController resume metadata', () => {
     );
     expect(mockGenerationJobManager.claimGeneration).not.toHaveBeenCalled();
     expect(mockGenerationJobManager.createJob).not.toHaveBeenCalled();
+  });
+
+  it('rejects a bound cross-circle turn before controller history, claims, save or provider', async () => {
+    const owner = '111111111111111111111111';
+    const member = '22222222-2222-4222-8222-222222222222';
+    const conversationId = '33333333-3333-4333-8333-333333333333';
+    mockCircleRuntime = createCircleExecution({
+      enabled: true,
+      store: () => ({
+        read: async () => ({
+          kind: 'bound',
+          binding: {
+            version: 1,
+            key: { chatOwnerId: owner, conversationId },
+            memberId: member,
+            scope: {
+              endpoint: 'OpenSchool',
+              model: 'circle-a',
+              circleId: '44444444-4444-4444-8444-444444444444',
+            },
+          },
+        }),
+      }),
+      scope: async () => ({
+        kind: 'resolved',
+        value: {
+          endpoint: 'OpenSchool',
+          model: 'circle-b',
+          circleId: '55555555-5555-4555-8555-555555555555',
+        },
+      }),
+      report: jest.fn(),
+    });
+    const initializeClient = jest.fn();
+    const res = createResumableResponse();
+    await AgentController(
+      {
+        user: { id: owner, memberId: member },
+        body: {
+          endpoint: 'OpenSchool',
+          conversationId,
+          endpointOption: { endpoint: 'OpenSchool', model_parameters: { model: 'circle-b' } },
+        },
+      },
+      res,
+      jest.fn(),
+      initializeClient,
+      null,
+    );
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(mockGetConvo).not.toHaveBeenCalled();
+    expect(mockGetMessages).not.toHaveBeenCalled();
+    expect(mockSaveMessage).not.toHaveBeenCalled();
+    expect(mockSaveConvo).not.toHaveBeenCalled();
+    expect(mockGenerationJobManager.claimGeneration).not.toHaveBeenCalled();
+    expect(initializeClient).not.toHaveBeenCalled();
   });
 
   it('rejects an underscore-suffixed parent that is not persisted', async () => {

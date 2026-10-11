@@ -1,3 +1,11 @@
+// These legacy route/client tests have no circle deployment. Keep the real disabled
+// execution contract local to this suite; enabled guard suites exercise admission separately.
+jest.mock('~/server/services/CircleExecution', () =>
+  jest
+    .requireActual('../../../../../packages/api/src/openschool/execution')
+    .createCircleExecution({ enabled: false }),
+);
+
 const mockLogger = {
   debug: jest.fn(),
   warn: jest.fn(),

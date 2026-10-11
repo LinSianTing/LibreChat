@@ -130,3 +130,8 @@ export type { OpenApiRouterDeps } from './openapi/router';
 export type * from './mcp/types';
 export type * from './flow/types';
 export type * from './types';
+
+export { parseCentralModelCatalog, resolveCentralModelScope } from './openschool/catalog';
+
+export { createConversationMetadataRouter } from './openschool/metadata';
+export { createCircleExecution, circleExecutionOptions } from './openschool/execution';

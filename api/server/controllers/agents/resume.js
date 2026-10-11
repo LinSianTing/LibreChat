@@ -1,3 +1,4 @@
+const circleExecution = require('~/server/services/CircleExecution');
 const { randomUUID } = require('crypto');
 const { isDeepStrictEqual } = require('util');
 const { logger } = require('@librechat/data-schemas');
@@ -2172,4 +2173,4 @@ const ResumeAgentController = async (req, res, next, initializeClient, addTitle)
   }
 };
 
-module.exports = ResumeAgentController;
+module.exports = circleExecution.wrap(ResumeAgentController);

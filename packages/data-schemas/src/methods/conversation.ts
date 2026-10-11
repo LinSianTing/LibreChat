@@ -321,7 +321,10 @@ export interface ConversationMethods {
       | { codeEnvironmentMode: 'without_attached'; codeWorkspaces?: undefined }
     ),
   ): Promise<IConversation | null>;
-  bulkSaveConvos(conversations: Array<Record<string, unknown>>): Promise<unknown>;
+  bulkSaveConvos(
+    conversations: Array<Record<string, unknown>>,
+    insertOnly?: boolean,
+  ): Promise<unknown>;
   getConvosByCursor(
     user: string,
     options?: {
@@ -2745,7 +2748,7 @@ export function createConversationMethods(
   /**
    * Saves multiple conversations in bulk.
    */
-  async function bulkSaveConvos(conversations: Array<Record<string, unknown>>) {
+  async function bulkSaveConvos(conversations: Array<Record<string, unknown>>, insertOnly = false) {
     try {
       const Conversation = mongoose.models.Conversation as Model<IConversation>;
       const ChatProject = mongoose.models.ChatProject as Model<IChatProjectDocument>;
@@ -2795,7 +2798,7 @@ export function createConversationMethods(
       const conversationPairs = conversations
         .filter((c) => typeof c.user === 'string' && typeof c.conversationId === 'string')
         .map((c) => ({ user: c.user as string, conversationId: c.conversationId as string }));
-      if (conversationPairs.length > 0) {
+      if (!insertOnly && conversationPairs.length > 0) {
         const existing = await Conversation.find(
           { $or: conversationPairs },
           'user conversationId chatProjectId',
@@ -2839,6 +2842,22 @@ export function createConversationMethods(
             });
           }
         }
+        if (insertOnly) {
+          // These IDs are server-owned receipts allocated by the import orchestrator.
+          if (typeof sanitized._id !== 'string' || !isValidObjectIdString(sanitized._id))
+            throw new Error('Missing import receipt');
+          delete sanitized.tenantId;
+          return {
+            insertOne: {
+              document: {
+                ...sanitized,
+                initial_agent_id: null,
+                ...(codeEnvironmentMode != null && { codeEnvironmentMode }),
+                ...(codeWorkspaces != null && { codeWorkspaces }),
+              },
+            },
+          };
+        }
         return {
           updateOne: {
             filter: {
@@ -2859,7 +2878,11 @@ export function createConversationMethods(
         };
       });
 
-      const result = await tenantSafeBulkWrite(Conversation, bulkOps);
+      const result = await tenantSafeBulkWrite(
+        Conversation,
+        bulkOps,
+        insertOnly ? { timestamps: false } : undefined,
+      );
       await Promise.all(
         [...affectedProjectStats.values()].map(({ user, projectId }) =>
           refreshChatProjectStatsForUser(mongoose, user, projectId),

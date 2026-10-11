@@ -1,5 +1,21 @@
 const express = require('express');
 const request = require('supertest');
+const { createCircleExecution } = require('../../../../packages/api/src/openschool/execution');
+let mockCircleUser;
+let mockCircleRuntime = createCircleExecution({ enabled: false });
+jest.mock('~/server/services/CircleExecution', () => ({
+  deletionError: (...args) => mockCircleRuntime.deletionError(...args),
+  mutation:
+    (controller, storedScope) =>
+    (...args) =>
+      mockCircleRuntime.mutation(controller, storedScope)(...args),
+  retire: (...args) => mockCircleRuntime.retire(...args),
+  drained: (...args) => mockCircleRuntime.drained(...args),
+  retireOwner: (...args) => mockCircleRuntime.retireOwner(...args),
+  fence: (...args) => mockCircleRuntime.fence(...args),
+  validateUpdate: (...args) => mockCircleRuntime.validateUpdate(...args),
+  existingResponse: (...args) => mockCircleRuntime.existingResponse(...args),
+}));
 
 const MOCKS = '../__test-utils__/convos-route-mocks';
 jest.mock('~/server/services/Config/app', () => ({ getAppConfig: jest.fn() }));
@@ -84,7 +100,7 @@ describe('Convos Routes', () => {
 
     /** Mock authenticated user */
     app.use((req, res, next) => {
-      req.user = { id: 'test-user-123', role: 'USER' };
+      req.user = mockCircleUser ?? { id: 'test-user-123', role: 'USER' };
       const tenantId = req.get('x-test-tenant');
       if (tenantId) {
         req.user.tenantId = tenantId;
@@ -118,6 +134,8 @@ describe('Convos Routes', () => {
   });
 
   beforeEach(() => {
+    mockCircleUser = undefined;
+    mockCircleRuntime = createCircleExecution({ enabled: false });
     jest.clearAllMocks();
     moderatedTexts.length = 0;
     generationJobManager.getCleanupJob.mockResolvedValue(null);
@@ -138,6 +156,92 @@ describe('Convos Routes', () => {
       'task-1',
       subscriber,
     );
+  });
+
+  it.each(['revoked', 'deleted', 'pending', 'allowed', 'legacy'])(
+    'rename respects %s circle admission',
+    async (state) => {
+      const conversationId = '33333333-3333-4333-8333-333333333333';
+      mockCircleUser = {
+        id: '111111111111111111111111',
+        memberId: '22222222-2222-4222-8222-222222222222',
+      };
+      const key = { chatOwnerId: mockCircleUser.id, conversationId };
+      const scope = {
+        endpoint: 'OpenSchool',
+        model: 'circle-a',
+        circleId: '44444444-4444-4444-8444-444444444444',
+      };
+      const release = jest.fn();
+      const acquire = jest.fn(async () => state !== 'pending');
+      mockCircleRuntime = createCircleExecution({
+        enabled: true,
+        presence: async () => 'owned',
+        report: jest.fn(),
+        store: () => ({
+          read: async () => {
+            if (state === 'legacy') return { kind: 'absent' };
+            if (state === 'deleted') return { kind: 'tombstone', key };
+            return {
+              kind: 'bound',
+              binding: { version: 1, key, memberId: mockCircleUser.memberId, scope },
+            };
+          },
+          acquire,
+          release,
+        }),
+        scope: async () =>
+          state === 'revoked' ? { kind: 'unavailable' } : { kind: 'resolved', value: scope },
+      });
+      saveConvo.mockResolvedValue({ conversationId });
+      const result = await request(app)
+        .post('/api/convos/update')
+        .send({ arg: { conversationId, title: 'Renamed' } });
+      if (state === 'allowed' || state === 'legacy') {
+        expect(result.status).toBe(201);
+        expect(saveConvo).toHaveBeenCalledTimes(1);
+        expect(release).toHaveBeenCalledTimes(state === 'allowed' ? 1 : 0);
+      } else {
+        expect(result.status).toBe(state === 'revoked' ? 503 : 409);
+        expect(saveConvo).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it('update rejects conflicting top-level and arg IDs before any write', async () => {
+    const response = await request(app)
+      .post('/api/convos/update')
+      .send({ conversationId: 'one', arg: { conversationId: 'two', title: 'Synthetic' } });
+    expect(response.status).toBe(400);
+    expect(saveConvo).not.toHaveBeenCalled();
+  });
+
+  it('update uses noUpsert and returns 404 for a missing/deleted conversation', async () => {
+    saveConvo.mockResolvedValue(null);
+    const response = await request(app)
+      .post('/api/convos/update')
+      .send({ arg: { conversationId: 'missing', title: 'Synthetic' } });
+    expect(response.status).toBe(404);
+    expect(saveConvo).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ noUpsert: true }),
+    );
+  });
+
+  it('delete retains tombstone and never calls physical deletion while occupancy remains', async () => {
+    const tombstone = jest.fn();
+    mockCircleRuntime = createCircleExecution({
+      enabled: true,
+      store: () => ({ tombstone, idle: async () => false }),
+    });
+    const response = await request(app)
+      .delete('/api/convos')
+      .send({ arg: { conversationId: '33333333-3333-4333-8333-333333333333' } });
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('OPENSCHOOL_DELETION_PENDING');
+    expect(tombstone).toHaveBeenCalledTimes(1);
+    expect(deleteConvos).not.toHaveBeenCalled();
   });
 
   it('filters and moderates subagent guidance as ordinary user text before control handling', async () => {

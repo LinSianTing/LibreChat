@@ -513,6 +513,17 @@ function findForbiddenTokens(sourceFile: ts.SourceFile): string[] {
   const visit = (node: ts.Node): void => {
     if (
       !isUnjudgedDottedWhere(node) &&
+      // AWS documents allowDiskUse:false for aggregation. Preserve the explicit
+      // no-spill resource fence; true, dynamic values and method calls stay forbidden.
+      // https://docs.aws.amazon.com/documentdb/latest/devguide/functional-differences.html
+      !(
+        node.parent !== undefined &&
+        ts.isPropertyAssignment(node.parent) &&
+        node.parent.name === node &&
+        node.parent.initializer.kind === ts.SyntaxKind.FalseKeyword &&
+        (ts.isIdentifier(node) || ts.isStringLiteral(node)) &&
+        node.text === 'allowDiskUse'
+      ) &&
       (ts.isStringLiteralLike(node) ||
         (ts.isIdentifier(node) && !ts.isPropertySignature(node.parent)))
     ) {
@@ -831,6 +842,23 @@ describe('Amazon DocumentDB compatibility', () => {
 
   it('uses no aggregation-pipeline updates', () => {
     expect(parsedSources.flatMap(findPipelineUpdates)).toEqual([]);
+  });
+
+  it('allows only literal false for the no-disk-spill option', () => {
+    expect(
+      findForbiddenTokens(parse('fixture.ts', 'query.option({ allowDiskUse: false });')),
+    ).toEqual([]);
+    expect(
+      findForbiddenTokens(parse('fixture.ts', "query.option({ 'allowDiskUse': false });")),
+    ).toEqual([]);
+    for (const source of [
+      'query.option({ allowDiskUse: true });',
+      'query.option({ allowDiskUse: configured });',
+      'query.option({ allowDiskUse });',
+      'query.allowDiskUse(false);',
+    ]) {
+      expect(findForbiddenTokens(parse('fixture.ts', source))).not.toEqual([]);
+    }
   });
 
   it('uses no aggregation constructs the engine rejects', () => {

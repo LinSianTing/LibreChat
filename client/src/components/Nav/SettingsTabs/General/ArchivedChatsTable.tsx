@@ -23,6 +23,7 @@ import {
   useDeleteConversationMutation,
   useArchiveConvoMutation,
 } from '~/data-provider';
+import { conversationDeleteErrorKey } from '~/utils/conversationDeleteError';
 import { MinimalIcon } from '~/components/Endpoints';
 import { NotificationSeverity } from '~/common';
 import { formatDate, logger } from '~/utils';
@@ -133,7 +134,9 @@ export default function ArchivedChatsTable() {
     onError: (error: unknown) => {
       logger.error('Error deleting archived conversation:', error);
       showToast({
-        message: localize('com_ui_archive_delete_error') as string,
+        message: localize(
+          conversationDeleteErrorKey(error, 'com_ui_archive_delete_error'),
+        ) as string,
         severity: NotificationSeverity.ERROR,
       });
     },

@@ -79,12 +79,12 @@ router.use(
     getFiles,
   }),
 );
-router.use(moderateText);
 router.use(checkAgentAccess);
 router.use(checkAgentResourceAccess);
 router.use(validateConvoAccess);
 router.use(guardSubagentThreadTurn);
 router.use(buildEndpointOption);
+router.use(moderateText);
 
 const controller = async (req, res, next) => {
   await AgentController(req, res, next, initializeClient, addTitle);

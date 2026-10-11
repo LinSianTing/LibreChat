@@ -17,7 +17,9 @@ import { MongoBinary } from 'mongodb-memory-server-core';
  */
 export default async function globalSetup() {
   try {
-    await MongoBinary.getPath({});
+    // Share the exact pre-warmed binary with suites that forbid implicit downloads.
+    // No skip/fallback: those suites still fail explicitly when provisioning fails.
+    process.env.MONGOMS_SYSTEM_BINARY = await MongoBinary.getPath({});
   } catch (error) {
     console.warn(
       '[data-schemas jest] Could not pre-warm the mongodb-memory-server binary:',

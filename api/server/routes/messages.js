@@ -1,3 +1,4 @@
+const circleExecution = require('~/server/services/CircleExecution');
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { logger, CLIENT_MESSAGE_SELECT, MEILI_SEARCH_LIMIT } = require('@librechat/data-schemas');
@@ -518,49 +519,57 @@ router.get('/:conversationId', prepareMessageRequestValidation, async (req, res)
   }
 });
 
-router.post('/:conversationId', storedMessageMutationMiddleware, async (req, res) => {
-  try {
-    if (await rejectSubagentThreadWrite(req, res, req.params.conversationId)) {
-      return;
+router.post(
+  '/:conversationId',
+  storedMessageMutationMiddleware,
+  circleExecution.mutation(async (req, res) => {
+    try {
+      if (await rejectSubagentThreadWrite(req, res, req.params.conversationId)) {
+        return;
+      }
+      /** Trace sampling fields are ownership claims only the server writes. */
+      const message = withoutTraceRefs({ ...req.body, conversationId: req.params.conversationId });
+      delete message.isUserSubmitted;
+      delete message.userSubmittedPaths;
+      delete message.userSubmittedMessageFieldPaths;
+      /** Server-private run state: a client-authored row must never seed a run's
+       * calibration or fading tiers, so the field only ever comes from the server. */
+      delete message.contextMeta;
+      const reqCtx = {
+        userId: req?.user?.id,
+        isTemporary: req.resolvedConversation?.isTemporary ?? req?.body?.isTemporary,
+        expiredAt: req.resolvedConversation?.expiredAt,
+        interfaceConfig: req?.config?.interfaceConfig,
+      };
+      const savedMessage = await db.saveMessage(
+        reqCtx,
+        { ...message, user: req.user.id, isUserSubmitted: true },
+        {
+          context: 'POST /api/messages/:conversationId',
+          conversationIdFence: req.params.conversationId,
+        },
+      );
+      if (!savedMessage) {
+        return res.status(400).json({ error: 'Message not saved' });
+      }
+      const conversationUpdate = {
+        conversationId: savedMessage.conversationId,
+        ...(message.endpoint !== undefined && { endpoint: savedMessage.endpoint }),
+        ...(message.model !== undefined && { model: savedMessage.model }),
+        ...(message.iconURL !== undefined && { iconURL: savedMessage.iconURL }),
+      };
+      await db.saveConvo(reqCtx, conversationUpdate, {
+        context: 'POST /api/messages/:conversationId',
+        noUpsert: true,
+        ...(savedMessage._id != null ? { appendMessageIds: [savedMessage._id] } : {}),
+      });
+      res.status(201).json(toClientMessage(savedMessage));
+    } catch (error) {
+      logger.error('Error saving message:', error);
+      res.status(500).json({ error: 'Internal server error' });
     }
-    /** Trace sampling fields are ownership claims only the server writes. */
-    const message = withoutTraceRefs({ ...req.body, conversationId: req.params.conversationId });
-    delete message.isUserSubmitted;
-    delete message.userSubmittedPaths;
-    delete message.userSubmittedMessageFieldPaths;
-    /** Server-private run state: a client-authored row must never seed a run's
-     * calibration or fading tiers, so the field only ever comes from the server. */
-    delete message.contextMeta;
-    const reqCtx = {
-      userId: req?.user?.id,
-      isTemporary: req.resolvedConversation?.isTemporary ?? req?.body?.isTemporary,
-      expiredAt: req.resolvedConversation?.expiredAt,
-      interfaceConfig: req?.config?.interfaceConfig,
-    };
-    const savedMessage = await db.saveMessage(
-      reqCtx,
-      { ...message, user: req.user.id, isUserSubmitted: true },
-      { context: 'POST /api/messages/:conversationId' },
-    );
-    if (!savedMessage) {
-      return res.status(400).json({ error: 'Message not saved' });
-    }
-    const conversationUpdate = {
-      conversationId: savedMessage.conversationId,
-      ...(message.endpoint !== undefined && { endpoint: savedMessage.endpoint }),
-      ...(message.model !== undefined && { model: savedMessage.model }),
-      ...(message.iconURL !== undefined && { iconURL: savedMessage.iconURL }),
-    };
-    await db.saveConvo(reqCtx, conversationUpdate, {
-      context: 'POST /api/messages/:conversationId',
-      ...(savedMessage._id != null ? { appendMessageIds: [savedMessage._id] } : {}),
-    });
-    res.status(201).json(toClientMessage(savedMessage));
-  } catch (error) {
-    logger.error('Error saving message:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+  }),
+);
 
 router.get('/:conversationId/:messageId', validateMessageReq, async (req, res) => {
   try {
@@ -579,116 +588,130 @@ router.get('/:conversationId/:messageId', validateMessageReq, async (req, res) =
   }
 });
 
-router.put('/:conversationId/:messageId', messageMutationMiddleware, async (req, res) => {
-  try {
-    const { conversationId, messageId } = req.params;
-    const message = (
-      await db.getMessages(
-        { messageId, user: req.user.id },
-        'conversationId content tokenCount quotes isCreatedByUser userSubmittedPaths',
-      )
-    )?.[0];
-    if (!message || message.conversationId !== conversationId) {
-      return res.status(404).json({ error: 'Message not found' });
-    }
-    if (await rejectSubagentThreadWrite(req, res, message.conversationId)) {
-      return;
-    }
-    const { text, index, model } = req.body;
+router.put(
+  '/:conversationId/:messageId',
+  messageMutationMiddleware,
+  circleExecution.mutation(async (req, res) => {
+    try {
+      const { conversationId, messageId } = req.params;
+      const message = (
+        await db.getMessages(
+          { messageId, user: req.user.id },
+          'conversationId content tokenCount quotes isCreatedByUser userSubmittedPaths',
+        )
+      )?.[0];
+      if (!message || message.conversationId !== conversationId) {
+        return res.status(404).json({ error: 'Message not found' });
+      }
+      if (await rejectSubagentThreadWrite(req, res, message.conversationId)) {
+        return;
+      }
+      const { text, index, model } = req.body;
 
-    if (index !== undefined && (typeof index !== 'number' || index < 0)) {
-      return res.status(400).json({ error: 'Invalid index' });
-    }
+      if (index !== undefined && (typeof index !== 'number' || index < 0)) {
+        return res.status(400).json({ error: 'Invalid index' });
+      }
 
-    if (index === undefined) {
-      assertStoredMessageMutationAllowed(req.config?.filters, { text });
+      if (index === undefined) {
+        assertStoredMessageMutationAllowed(req.config?.filters, { text });
 
-      /** A user turn's persisted `quotes` are re-prepended into the prompt on
-       *  every send, but this edit only changes `text`. Count the merged
-       *  text+quotes so the stored `tokenCount` stays authoritative (matching the
-       *  send path); a plain text-only count under-reports by the quote block. */
-      const textToCount = mergeQuotedTextForCount(
-        text,
-        message.quotes,
-        message.isCreatedByUser === true,
+        /** A user turn's persisted `quotes` are re-prepended into the prompt on
+         *  every send, but this edit only changes `text`. Count the merged
+         *  text+quotes so the stored `tokenCount` stays authoritative (matching the
+         *  send path); a plain text-only count under-reports by the quote block. */
+        const textToCount = mergeQuotedTextForCount(
+          text,
+          message.quotes,
+          message.isCreatedByUser === true,
+        );
+        assertChatMutationAllowed(req.config?.filters, {
+          text,
+          quotes: message.isCreatedByUser === true ? message.quotes : undefined,
+        });
+        const tokenCount = await countTokens(textToCount, model);
+        const result = await db.updateMessage(
+          req?.user?.id,
+          {
+            messageId,
+            text,
+            tokenCount,
+            userSubmittedPaths: mergeUserSubmittedPaths(message.userSubmittedPaths, '/text'),
+          },
+          { conversationIdFence: conversationId },
+        );
+        return res.status(200).json(result);
+      }
+
+      const existingContent = message.content;
+      if (!Array.isArray(existingContent) || index >= existingContent.length) {
+        return res.status(400).json({ error: 'Invalid index' });
+      }
+
+      const updatedContent = [...existingContent];
+      if (!updatedContent[index]) {
+        return res.status(400).json({ error: 'Content part not found' });
+      }
+
+      const currentPartType = updatedContent[index].type;
+      if (currentPartType !== ContentTypes.TEXT && currentPartType !== ContentTypes.THINK) {
+        return res.status(400).json({ error: 'Cannot update non-text content' });
+      }
+
+      assertStoredMessageMutationAllowed(req.config?.filters, {
+        content: [{ [currentPartType]: text }],
+      });
+
+      /** A text part is `string | { value, annotations }`. The Assistants thread sync
+       *  persists the structured form with its file citations intact, and the editor
+       *  reads it through the same union, so an edit has to be written into `value`
+       *  rather than over the whole part. The same object is what gets counted below,
+       *  and the tokenizer measures `length`, which an object does not have. */
+      const currentPart = updatedContent[index];
+      const currentValue = currentPart[currentPartType];
+      const isStructuredValue = currentValue != null && typeof currentValue === 'object';
+      const oldText = isStructuredValue ? (currentValue.value ?? '') : currentValue;
+      const editedPart = {
+        ...currentPart,
+        [currentPartType]: isStructuredValue ? { ...currentValue, value: text } : text,
+      };
+      updatedContent[index] =
+        currentPartType === ContentTypes.THINK
+          ? stripReasoningLabelMetadata(editedPart)
+          : editedPart;
+      assertStoredMessageMutationAllowed(req.config?.filters, {
+        content: [updatedContent[index]],
+      });
+
+      let tokenCount = message.tokenCount;
+      if (tokenCount !== undefined) {
+        const oldTokenCount = await countTokens(oldText, model);
+        const newTokenCount = await countTokens(text, model);
+        tokenCount = Math.max(0, tokenCount - oldTokenCount) + newTokenCount;
+      }
+
+      const result = await db.updateMessage(
+        req?.user?.id,
+        {
+          messageId,
+          content: updatedContent,
+          tokenCount,
+          userSubmittedPaths: mergeUserSubmittedPaths(
+            message.userSubmittedPaths,
+            `/content/${index}/${currentPartType}`,
+          ),
+        },
+        { conversationIdFence: conversationId },
       );
-      assertChatMutationAllowed(req.config?.filters, {
-        text,
-        quotes: message.isCreatedByUser === true ? message.quotes : undefined,
-      });
-      const tokenCount = await countTokens(textToCount, model);
-      const result = await db.updateMessage(req?.user?.id, {
-        messageId,
-        text,
-        tokenCount,
-        userSubmittedPaths: mergeUserSubmittedPaths(message.userSubmittedPaths, '/text'),
-      });
       return res.status(200).json(result);
+    } catch (error) {
+      if (isContentFilterError(error)) {
+        return res.status(error.statusCode).json(error.body);
+      }
+      logger.error('Error updating message:', error);
+      res.status(500).json({ error: 'Internal server error' });
     }
-
-    const existingContent = message.content;
-    if (!Array.isArray(existingContent) || index >= existingContent.length) {
-      return res.status(400).json({ error: 'Invalid index' });
-    }
-
-    const updatedContent = [...existingContent];
-    if (!updatedContent[index]) {
-      return res.status(400).json({ error: 'Content part not found' });
-    }
-
-    const currentPartType = updatedContent[index].type;
-    if (currentPartType !== ContentTypes.TEXT && currentPartType !== ContentTypes.THINK) {
-      return res.status(400).json({ error: 'Cannot update non-text content' });
-    }
-
-    assertStoredMessageMutationAllowed(req.config?.filters, {
-      content: [{ [currentPartType]: text }],
-    });
-
-    /** A text part is `string | { value, annotations }`. The Assistants thread sync
-     *  persists the structured form with its file citations intact, and the editor
-     *  reads it through the same union, so an edit has to be written into `value`
-     *  rather than over the whole part. The same object is what gets counted below,
-     *  and the tokenizer measures `length`, which an object does not have. */
-    const currentPart = updatedContent[index];
-    const currentValue = currentPart[currentPartType];
-    const isStructuredValue = currentValue != null && typeof currentValue === 'object';
-    const oldText = isStructuredValue ? (currentValue.value ?? '') : currentValue;
-    const editedPart = {
-      ...currentPart,
-      [currentPartType]: isStructuredValue ? { ...currentValue, value: text } : text,
-    };
-    updatedContent[index] =
-      currentPartType === ContentTypes.THINK ? stripReasoningLabelMetadata(editedPart) : editedPart;
-    assertStoredMessageMutationAllowed(req.config?.filters, {
-      content: [updatedContent[index]],
-    });
-
-    let tokenCount = message.tokenCount;
-    if (tokenCount !== undefined) {
-      const oldTokenCount = await countTokens(oldText, model);
-      const newTokenCount = await countTokens(text, model);
-      tokenCount = Math.max(0, tokenCount - oldTokenCount) + newTokenCount;
-    }
-
-    const result = await db.updateMessage(req?.user?.id, {
-      messageId,
-      content: updatedContent,
-      tokenCount,
-      userSubmittedPaths: mergeUserSubmittedPaths(
-        message.userSubmittedPaths,
-        `/content/${index}/${currentPartType}`,
-      ),
-    });
-    return res.status(200).json(result);
-  } catch (error) {
-    if (isContentFilterError(error)) {
-      return res.status(error.statusCode).json(error.body);
-    }
-    logger.error('Error updating message:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+  }, true),
+);
 
 router.put(
   '/:conversationId/:messageId/feedback',

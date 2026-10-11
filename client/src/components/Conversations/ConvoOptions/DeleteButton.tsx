@@ -14,6 +14,7 @@ import {
   useToastContext,
 } from '@librechat/client';
 import type { TMessage } from 'librechat-data-provider';
+import { conversationDeleteErrorKey } from '~/utils/conversationDeleteError';
 import { useDeleteConversationMutation } from '~/data-provider';
 import { useLocalize, useNewConvo } from '~/hooks';
 import { NotificationSeverity } from '~/common';
@@ -67,9 +68,9 @@ export function DeleteConversationDialog({
         showIcon: true,
       });
     },
-    onError: () => {
+    onError: (error: unknown) => {
       showToast({
-        message: localize('com_ui_convo_delete_error'),
+        message: localize(conversationDeleteErrorKey(error)),
         severity: NotificationSeverity.ERROR,
         showIcon: true,
       });
@@ -102,9 +103,7 @@ export function DeleteConversationDialog({
       </div>
       <div className="flex justify-end gap-4 pt-4">
         <OGDialogClose asChild>
-          <Button aria-label="cancel" variant="outline">
-            {localize('com_ui_cancel')}
-          </Button>
+          <Button variant="outline">{localize('com_ui_cancel')}</Button>
         </OGDialogClose>
         <Button variant="destructive" onClick={confirmDelete} disabled={deleteMutation.isLoading}>
           {deleteMutation.isLoading ? <Spinner /> : localize('com_ui_delete')}

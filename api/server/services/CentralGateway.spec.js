@@ -1,4 +1,7 @@
-const { models, modelCatalog, identityHeaders } = require('./CentralGateway');
+jest.mock('@librechat/api', () =>
+  jest.requireActual('../../../packages/api/src/openschool/catalog'),
+);
+const { models, modelCatalog, modelScope, identityHeaders } = require('./CentralGateway');
 const env = { ...process.env };
 const originalFetch = global.fetch;
 const a = {
@@ -145,6 +148,123 @@ test('a bad name never fails the list, but a bad id still does', async () => {
     .mockResolvedValueOnce(
       new Response(JSON.stringify({ object: 'list', data: [{ id: 'Circle-A', name: 'ok' }] })),
     );
-  expect(await modelCatalog(a)).toEqual({ ids: ['circle-a'], names: {} });
+  expect(await modelCatalog(a)).toEqual({ ids: ['circle-a'], names: {}, circleIds: {} });
   await expect(modelCatalog(a)).rejects.toThrow('Invalid central model response');
+});
+
+const circleA = 'aaaaaaaa-1111-4111-8111-111111111111';
+const circleB = 'bbbbbbbb-2222-4222-8222-222222222222';
+const catalogReply = (entries) => new Response(JSON.stringify({ object: 'list', data: entries }));
+
+test('maps only server circle GUIDs; personal never receives a circle', async () => {
+  global.fetch.mockResolvedValueOnce(
+    catalogReply([
+      { id: 'circle-a', openschool_circle_id: circleA.toUpperCase() },
+      { id: 'personal', openschool_circle_id: circleB },
+      { id: 'circle-legacy', name: 'Legacy listing' },
+    ]),
+  );
+  expect(await modelCatalog(a)).toEqual({
+    ids: ['circle-a', 'personal', 'circle-legacy'],
+    names: { 'circle-legacy': 'Legacy listing' },
+    circleIds: { 'circle-a': circleA },
+  });
+});
+
+test.each([
+  undefined,
+  null,
+  '',
+  42,
+  {},
+  [],
+  'bad',
+  '00000000-0000-0000-0000-000000000000',
+  ' ' + circleA,
+  circleA + '\n',
+])('invalid/missing circle %p preserves listing without binding', async (value) => {
+  global.fetch.mockResolvedValueOnce(
+    catalogReply([{ id: 'circle-a', openschool_circle_id: value }]),
+  );
+  expect(await modelCatalog(a)).toEqual({ ids: ['circle-a'], names: {}, circleIds: {} });
+});
+
+test.each([
+  [circleA, circleB, circleA],
+  [circleB, circleA],
+  [circleA, null, circleA],
+  [null, circleA],
+  [circleA, undefined],
+  [undefined, circleA],
+  [circleA, 'bad'],
+  ['bad', circleA],
+])(
+  'duplicate ID with conflicting or invalid circle is permanently untrusted: %p',
+  async (...values) => {
+    global.fetch.mockResolvedValueOnce(
+      catalogReply(values.map((value) => ({ id: 'circle-a', openschool_circle_id: value }))),
+    );
+    expect(await modelCatalog(a)).toEqual({ ids: ['circle-a'], names: {}, circleIds: {} });
+  },
+);
+
+test('identical duplicate GUIDs remain usable', async () => {
+  global.fetch.mockResolvedValueOnce(
+    catalogReply([
+      { id: 'circle-a', openschool_circle_id: circleA },
+      { id: 'circle-a', openschool_circle_id: circleA.toUpperCase() },
+    ]),
+  );
+  expect((await modelCatalog(a)).circleIds).toEqual({ 'circle-a': circleA });
+});
+
+test('scope comes from a fresh authorized catalog each time, ignoring client circle/project fields', async () => {
+  global.fetch
+    .mockResolvedValueOnce(catalogReply([{ id: 'circle-a', openschool_circle_id: circleA }]))
+    .mockResolvedValueOnce(catalogReply([{ id: 'circle-a', openschool_circle_id: circleB }]))
+    .mockResolvedValueOnce(catalogReply([]))
+    .mockResolvedValueOnce(new Response('{}', { status: 403 }));
+  const user = { ...a, circleId: circleB, project: 'circle-b' };
+  expect(await modelScope(user, 'circle-a', circleB)).toEqual({
+    kind: 'resolved',
+    value: {
+      endpoint: 'OpenSchool',
+      model: 'circle-a',
+      circleId: circleA,
+    },
+  });
+  expect((await modelScope(a, 'circle-a')).value.circleId).toBe(circleB);
+  expect(await modelScope(a, 'circle-a')).toEqual({ kind: 'unknown' });
+  await expect(modelScope(a, 'circle-a')).rejects.toMatchObject({ status: 403 });
+  expect(global.fetch).toHaveBeenCalledTimes(4);
+});
+
+test.each([
+  ['personal', [{ id: 'personal', openschool_circle_id: circleA }]],
+  ['circle-a', [{ id: 'circle-a' }]],
+  ['circle-a', [{ id: 'circle-a', openschool_circle_id: null }]],
+  [
+    'circle-a',
+    [
+      { id: 'circle-a', openschool_circle_id: circleA },
+      { id: 'circle-a', openschool_circle_id: circleB },
+    ],
+  ],
+  ['circle-a', [{ id: 'circle-other', openschool_circle_id: circleA }]],
+])(
+  'scope unavailable for personal, legacy, null, conflicts or unauthorized models: %s',
+  async (model, entries) => {
+    global.fetch.mockResolvedValueOnce(catalogReply(entries));
+    expect(await modelScope(a, model)).toEqual({ kind: 'unknown' });
+  },
+);
+
+test.each([
+  null,
+  {},
+  { object: 'list', data: [null] },
+  { object: 'list', data: [{ id: 'circle-a\n' }] },
+])('malformed response fails closed: %p', async (body) => {
+  global.fetch.mockResolvedValueOnce(new Response(JSON.stringify(body)));
+  await expect(modelScope(a, 'circle-a')).rejects.toThrow('Invalid central model response');
 });

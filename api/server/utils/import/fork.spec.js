@@ -1,3 +1,10 @@
+jest.mock('@librechat/api', () => ({
+  ...jest.requireActual('@librechat/api'),
+  ...jest.requireActual('../../../../packages/api/src/conversations/import'),
+}));
+jest.mock('~/server/services/CircleExecution', () => ({
+  importBatch: (_owner, _tenant, _ids, write) => write(),
+}));
 const { Constants, ForkOptions } = require('librechat-data-provider');
 
 const mockLogger = {
@@ -135,6 +142,7 @@ describe('forkConversation', () => {
         expectedMessagesTexts.map((text) => expect.objectContaining({ text })),
       ),
       true,
+      true,
     );
   });
 
@@ -153,6 +161,7 @@ describe('forkConversation', () => {
       expect.arrayContaining(
         expectedMessagesTexts.map((text) => expect.objectContaining({ text })),
       ),
+      true,
       true,
     );
   });
@@ -297,6 +306,7 @@ describe('forkConversation', () => {
         expectedMessagesTexts.map((text) => expect.objectContaining({ text })),
       ),
       true,
+      true,
     );
   });
 
@@ -316,6 +326,7 @@ describe('forkConversation', () => {
       expect.arrayContaining(
         expectedMessagesTexts.map((text) => expect.objectContaining({ text })),
       ),
+      true,
       true,
     );
   });

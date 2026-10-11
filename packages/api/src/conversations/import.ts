@@ -13,6 +13,29 @@ export interface ConversationImportWriteBatch {
   tenantId?: string;
 }
 
+/** Server-only identities are allocated before IO, including uncertain/partial outcomes.
+ * Cleanup matches these exact document identities as well as owner/tenant/conversation.
+ * A collided logical conversation/message ID can therefore never authorize deleting its winner.
+ */
+export function prepareConversationImportInserts(batch: ConversationImportWriteBatch): {
+  conversations: Document[];
+  messages: Document[];
+  conversationRecordIds: string[];
+  messageRecordIds: string[];
+} {
+  const conversations = batch.conversations.map((row) => ({
+    ...row,
+    _id: new ObjectId().toHexString(),
+  }));
+  const messages = batch.messages.map((row) => ({ ...row, _id: new ObjectId().toHexString() }));
+  return {
+    conversations,
+    messages,
+    conversationRecordIds: conversations.map((row) => row._id),
+    messageRecordIds: messages.map((row) => row._id),
+  };
+}
+
 export interface ConversationImportWriteOperations {
   saveConversations: () => Promise<void>;
   saveMessages: () => Promise<void>;

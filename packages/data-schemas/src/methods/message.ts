@@ -364,7 +364,9 @@ async function findOneAndMergeMessageProvenance(
         return message;
       }
     } catch (err) {
-      if (!isDuplicateKeyError(err) || !options.upsert) {
+      // A route-scoped identity cannot retry against another conversation. The caller's
+      // duplicate handler reads back and accepts only the same conversation's winner.
+      if (!isDuplicateKeyError(err) || !options.upsert || identity.conversationId != null) {
         throw err;
       }
     }
@@ -657,7 +659,7 @@ export interface MessageMethods {
       newMessageId?: string;
       contextMeta?: IMessage['contextMeta'] | null;
     },
-    metadata?: { context?: string },
+    metadata?: { context?: string; conversationIdFence?: string },
   ): Promise<IMessage | null | undefined>;
   /**
    * Reads the references a trace viewer needs for one of the user's
@@ -719,9 +721,16 @@ export interface MessageMethods {
       updatedAt: Date;
     };
   } | null>;
+  /** Insert-only imports use server-issued hex receipts before Mongoose casts them. */
+  bulkSaveMessages(
+    messages: Array<Omit<Partial<IMessage>, '_id'> & { _id: string }>,
+    overrideTimestamp: boolean,
+    insertOnly: true,
+  ): Promise<unknown>;
   bulkSaveMessages(
     messages: Array<Partial<IMessage>>,
     overrideTimestamp?: boolean,
+    insertOnly?: boolean,
   ): Promise<unknown>;
   recordMessage(params: {
     user: string;
@@ -787,7 +796,7 @@ export interface MessageMethods {
   updateMessage(
     userId: string,
     message: Partial<IMessage> & { newMessageId?: string },
-    metadata?: { context?: string },
+    metadata?: { context?: string; conversationIdFence?: string },
   ): Promise<Partial<IMessage>>;
   claimSubagentTaskResult(params: {
     userId: string;
@@ -923,7 +932,7 @@ export function createMessageMethods(mongoose: typeof import('mongoose')): Messa
       /** `null` unsets a previously stored value; omission leaves it in place. */
       contextMeta?: IMessage['contextMeta'] | null;
     },
-    metadata?: { context?: string },
+    metadata?: { context?: string; conversationIdFence?: string },
   ) {
     if (!userId) {
       throw new Error('User not authenticated');
@@ -1025,17 +1034,24 @@ export function createMessageMethods(mongoose: typeof import('mongoose')): Messa
         params.isCreatedByUser === false && params.isUserSubmitted === undefined;
       const hasProvenance =
         userSubmittedPaths.length > 0 || userSubmittedMessageFieldPaths.length > 0;
+      const messageFilter = {
+        messageId: params.messageId,
+        user: userId,
+        ...(metadata?.conversationIdFence != null && {
+          conversationId: metadata.conversationIdFence,
+        }),
+      };
       const message = hasProvenance
         ? await findOneAndMergeMessageProvenance(
             Message,
-            { messageId: params.messageId, user: userId },
+            messageFilter,
             update,
             userSubmittedPaths,
             userSubmittedMessageFieldPaths,
             { upsert: true, stampModelOutputOnInsert, unsetContextMeta, retentionOnInsert },
           )
         : await Message.findOneAndUpdate(
-            { messageId: params.messageId, user: userId },
+            messageFilter,
             buildMessageSaveUpdate(update, {
               stampModelOutputOnInsert,
               unsetContextMeta,
@@ -1100,6 +1116,11 @@ export function createMessageMethods(mongoose: typeof import('mongoose')): Messa
           });
 
           if (existingMessage) {
+            if (
+              metadata?.conversationIdFence != null &&
+              existingMessage.conversationId !== metadata.conversationIdFence
+            )
+              return undefined;
             return existingMessage.toObject();
           }
 
@@ -1122,6 +1143,7 @@ export function createMessageMethods(mongoose: typeof import('mongoose')): Messa
   async function bulkSaveMessages(
     messages: Array<Record<string, unknown>>,
     overrideTimestamp = false,
+    insertOnly = false,
   ) {
     try {
       const Message = mongoose.models.Message as Model<IMessage>;
@@ -1145,6 +1167,15 @@ export function createMessageMethods(mongoose: typeof import('mongoose')): Messa
         if (provenance.promoteWholeMessage) {
           normalizedMessage.isUserSubmitted = true;
         }
+        if (insertOnly) {
+          if (
+            typeof normalizedMessage._id !== 'string' ||
+            !/^[0-9a-f]{24}$/.test(normalizedMessage._id)
+          )
+            throw new Error('Missing import receipt');
+          delete normalizedMessage.tenantId;
+          return { insertOne: { document: normalizedMessage } };
+        }
         return {
           updateOne: {
             filter: { messageId: message.messageId },
@@ -1154,7 +1185,11 @@ export function createMessageMethods(mongoose: typeof import('mongoose')): Messa
           },
         };
       });
-      const result = await tenantSafeBulkWrite(Message, bulkOps);
+      const result = await tenantSafeBulkWrite(
+        Message,
+        bulkOps,
+        insertOnly ? { timestamps: !overrideTimestamp } : undefined,
+      );
       return result;
     } catch (err) {
       logger.error('Error saving messages in bulk:', err);
@@ -2060,7 +2095,7 @@ export function createMessageMethods(mongoose: typeof import('mongoose')): Messa
   async function updateMessage(
     userId: string,
     message: { messageId: string; [key: string]: unknown },
-    metadata?: { context?: string },
+    metadata?: { context?: string; conversationIdFence?: string },
   ) {
     try {
       const Message = mongoose.models.Message as Model<IMessage>;
@@ -2071,17 +2106,24 @@ export function createMessageMethods(mongoose: typeof import('mongoose')): Messa
       );
       delete update.userSubmittedPaths;
       delete update.userSubmittedMessageFieldPaths;
+      const filter = {
+        messageId,
+        user: userId,
+        ...(metadata?.conversationIdFence == null
+          ? {}
+          : { conversationId: metadata.conversationIdFence }),
+      };
       const updatedMessage =
         submittedPaths.length > 0 || submittedMessageFields.length > 0
           ? await findOneAndMergeMessageProvenance(
               Message,
-              { messageId, user: userId },
+              filter,
               update,
               submittedPaths,
               submittedMessageFields,
               { upsert: false },
             )
-          : await Message.findOneAndUpdate({ messageId, user: userId }, update, { new: true });
+          : await Message.findOneAndUpdate(filter, update, { new: true });
 
       if (!updatedMessage) {
         throw new Error('Message not found or user not authorized.');

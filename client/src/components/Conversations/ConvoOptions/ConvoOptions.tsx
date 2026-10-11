@@ -33,6 +33,7 @@ import {
   usePinConversationMutation,
 } from '~/data-provider';
 import { useHasAccess, useLocalize, useNavigateToConvo, useNewConvo } from '~/hooks';
+import { conversationDeleteErrorKey } from '~/utils/conversationDeleteError';
 import { useChatContext, useLiveAnnouncer } from '~/Providers';
 import { NotificationSeverity } from '~/common';
 import ProjectButton from './ProjectButton';
@@ -128,9 +129,9 @@ function ConvoOptions({
         showIcon: true,
       });
     },
-    onError: () => {
+    onError: (error: unknown) => {
       showToast({
-        message: localize('com_ui_convo_delete_error'),
+        message: localize(conversationDeleteErrorKey(error)),
         severity: NotificationSeverity.ERROR,
         showIcon: true,
       });

@@ -1,3 +1,11 @@
+// These legacy route/client tests have no circle deployment. Keep the real disabled
+// execution contract local to this suite; enabled guard suites exercise admission separately.
+jest.mock('~/server/services/CircleExecution', () =>
+  jest
+    .requireActual('../../../../packages/api/src/openschool/execution')
+    .createCircleExecution({ enabled: false }),
+);
+
 const { CLIENT_MESSAGE_SELECT, MEILI_SEARCH_LIMIT } = require('@librechat/data-schemas');
 const express = require('express');
 const request = require('supertest');
@@ -546,7 +554,7 @@ describe('message route conversation ownership filters', () => {
         isUserSubmitted: true,
         user: authenticatedUserId,
       }),
-      { context: 'POST /api/messages/:conversationId' },
+      { context: 'POST /api/messages/:conversationId', conversationIdFence: urlConversationId },
     );
     expect(saveMessage.mock.calls[0][1].conversationId).not.toBe(bodyConversationId);
     expect(saveMessage.mock.calls[0][1]).not.toHaveProperty('userSubmittedPaths');
@@ -568,6 +576,7 @@ describe('message route conversation ownership filters', () => {
       {
         context: 'POST /api/messages/:conversationId',
         appendMessageIds: [savedMessage._id],
+        noUpsert: true,
       },
     );
   });
@@ -895,12 +904,16 @@ describe('message route conversation ownership filters', () => {
     expect(extractStoredMessageContent).toHaveBeenCalledWith({
       content: [{ text: 'new content' }],
     });
-    expect(updateMessage).toHaveBeenCalledWith(authenticatedUserId, {
-      messageId: 'message-1',
-      content: [{ type: 'text', text: 'new content' }],
-      tokenCount: 10,
-      userSubmittedPaths: ['/summary', '/content/0/text'],
-    });
+    expect(updateMessage).toHaveBeenCalledWith(
+      authenticatedUserId,
+      {
+        messageId: 'message-1',
+        content: [{ type: 'text', text: 'new content' }],
+        tokenCount: 10,
+        userSubmittedPaths: ['/summary', '/content/0/text'],
+      },
+      { conversationIdFence: 'convo-1' },
+    );
   });
 
   it('marks direct assistant text edits as user-submitted', async () => {
@@ -920,12 +933,16 @@ describe('message route conversation ownership filters', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(updateMessage).toHaveBeenCalledWith(authenticatedUserId, {
-      messageId: 'message-1',
-      text: 'User replacement for assistant prose',
-      tokenCount: 10,
-      userSubmittedPaths: ['/content/0/text', '/text'],
-    });
+    expect(updateMessage).toHaveBeenCalledWith(
+      authenticatedUserId,
+      {
+        messageId: 'message-1',
+        text: 'User replacement for assistant prose',
+        tokenCount: 10,
+        userSubmittedPaths: ['/content/0/text', '/text'],
+      },
+      { conversationIdFence: 'convo-1' },
+    );
   });
 
   it('filters the finalized indexed edit without rescanning persisted siblings', async () => {
