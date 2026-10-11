@@ -59,8 +59,8 @@ function scopeFrom(value: unknown, now: number): MetadataScope {
     !matches(guid, value.member) ||
     !matches(guid, value.circle) ||
     !matches(ownerId, value.owner) ||
-    (value.view !== 'mine' && value.view !== 'manager') ||
-    (value.view === 'mine' && value.actor !== value.member) ||
+    (value.view !== 'mine' && value.view !== 'manager' && value.view !== 'manager-preview') ||
+    ((value.view === 'mine' || value.view === 'manager-preview') && value.actor !== value.member) ||
     !(value.range === undefined || value.range === 'all'
       ? value.since === undefined || value.since === null
       : value.range === '7d' &&

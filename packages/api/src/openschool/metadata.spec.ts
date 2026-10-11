@@ -382,3 +382,66 @@ test('7d continuation retains its grant anchor and cannot cross range or since',
   expect((await f.post({ grant: 'other-anchor', cursor })).status).toBe(400);
   expect(f.query).toHaveBeenCalledTimes(2);
 });
+
+test('trusted self manager-preview preserves the whitelist and textual candidate view', async () => {
+  const f = setup();
+  f.fetchImpl.mockResolvedValueOnce(resolved({ view: 'manager-preview' }));
+  f.query.mockResolvedValueOnce([{ ...row(1), content: 'PRIVATE', continuationUrl: '/c/private' }]);
+  const reply = await f.post();
+  expect(reply.status).toBe(200);
+  expect(reply.body).toEqual({
+    version: 1,
+    ...scope,
+    view: 'manager-preview',
+    items: [{ ...row(1), circle: scope.circle, owner: scope.owner }],
+    nextCursor: null,
+  });
+  expect(f.query).toHaveBeenCalledWith({ ...scope, view: 'manager-preview' }, undefined);
+  expect(reply.text).not.toContain('PRIVATE');
+  expect(reply.text).not.toContain('continuation');
+});
+
+test.each([
+  { view: 'manager-preview', actor: '44444444-4444-4444-8444-444444444444' },
+  { view: 2 },
+  { view: '2' },
+  { view: 'managerPreview' },
+])('preview rejects foreign actor or unsupported wire view before query: %p', async (change) => {
+  const f = setup();
+  f.fetchImpl.mockResolvedValueOnce(resolved(change));
+  expect((await f.post()).status).toBe(503);
+  expect(f.query).not.toHaveBeenCalled();
+});
+
+test.each([
+  ['manager-preview', 'mine'],
+  ['manager-preview', 'manager'],
+  ['mine', 'manager-preview'],
+  ['manager', 'manager-preview'],
+])('cursor cannot cross %s to %s', async (from, to) => {
+  const f = setup();
+  f.fetchImpl.mockResolvedValueOnce(resolved({ view: from }));
+  f.query.mockResolvedValueOnce(Array.from({ length: 51 }, (_, i) => row(i)));
+  const first = await f.post();
+  expect(first.status).toBe(200);
+  f.fetchImpl.mockResolvedValueOnce(resolved({ view: to }));
+  expect((await f.post({ grant: 'fresh-grant', cursor: first.body.nextCursor })).status).toBe(400);
+  expect(f.query).toHaveBeenCalledTimes(1);
+});
+
+test('preview pagination re-resolves authorization with the same view', async () => {
+  const f = setup();
+  f.fetchImpl.mockImplementation(async () => resolved({ view: 'manager-preview' }));
+  f.query.mockResolvedValueOnce(Array.from({ length: 51 }, (_, i) => row(i)));
+  const first = await f.post();
+  expect((await f.post({ grant: 'fresh-grant', cursor: first.body.nextCursor })).status).toBe(200);
+  expect(f.query).toHaveBeenLastCalledWith(
+    { ...scope, view: 'manager-preview' },
+    { id: row(49).id, updatedAt: row(49).updatedAt },
+  );
+  f.fetchImpl.mockResolvedValueOnce(new Response('{}', { status: 403 }));
+  expect((await f.post({ grant: 'revoked-grant', cursor: first.body.nextCursor })).status).toBe(
+    403,
+  );
+  expect(f.query).toHaveBeenCalledTimes(2);
+});

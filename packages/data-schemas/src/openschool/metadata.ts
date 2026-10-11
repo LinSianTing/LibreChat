@@ -6,7 +6,7 @@ export interface MetadataScope {
   member: string;
   owner: string;
   circle: string;
-  view: 'mine' | 'manager';
+  view: 'mine' | 'manager' | 'manager-preview';
   range?: 'all' | '7d';
   since?: string | null;
 }
