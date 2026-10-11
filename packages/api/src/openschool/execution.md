@@ -45,6 +45,9 @@ web process, and an empty generation-job list do not prove provider/background p
 
 ### Controlled reconciliation (offline only)
 
+Operator steps, abort conditions and the final-source Mongo16 synthetic rehearsal are in
+[the offline reconciliation runbook](reconcile-runbook.md).
+
 No HTTP route, startup hook, timer or deletion retry invokes reconciliation. `occupancy(key)` is a
 read-only exact-ID snapshot; `reconcileRetired(key, expectedOperations)` is an explicit data-layer
 primitive for a separately authorized maintenance session, **not a liveness detector**.
