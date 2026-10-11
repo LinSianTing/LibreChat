@@ -50,7 +50,7 @@ function setup(env: Record<string, string | undefined> = {}) {
         OPENSCHOOL_METADATA_NAMESPACE: 'synthetic:tenant-one',
         ...env,
       },
-      fetchImpl,
+      fetchImpl: Object.assign(fetchImpl, { preconnect: jest.fn() }),
       resolveProfile,
       query,
       now: () => time,
