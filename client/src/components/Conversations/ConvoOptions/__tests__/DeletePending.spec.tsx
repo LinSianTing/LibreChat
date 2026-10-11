@@ -170,5 +170,5 @@ it.each([
       />
     </QueryClientProvider>,
   );
-  expect(screen.getByRole('button', { name, exact: true })).toHaveTextContent(name);
+  expect(screen.getByRole('button', { name })).toHaveTextContent(name);
 });
