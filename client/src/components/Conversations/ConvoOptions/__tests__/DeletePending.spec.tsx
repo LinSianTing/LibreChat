@@ -5,8 +5,9 @@ import ArchivedChatsTable from '~/components/Nav/SettingsTabs/General/ArchivedCh
 import { conversationDeleteErrorKey } from '~/utils/conversationDeleteError';
 import { DeleteConversationDialog } from '../DeleteButton';
 import mockZh from '~/locales/zh-Hant/translation.json';
-import en from '~/locales/en/translation.json';
+import mockEn from '~/locales/en/translation.json';
 
+let mockLocale: 'en' | 'zh-Hant' = 'zh-Hant';
 const mockToast = jest.fn();
 const mockMutate = jest.fn();
 const mockNavigate = jest.fn();
@@ -31,7 +32,8 @@ jest.mock('~/data-provider', () => ({
   }),
 }));
 jest.mock('~/hooks', () => ({
-  useLocalize: () => (key: keyof typeof mockZh) => mockZh[key] ?? key,
+  useLocalize: () => (key: keyof typeof mockZh) =>
+    (mockLocale === 'en' ? mockEn : mockZh)[key] ?? key,
   useNewConvo: () => ({ newConversation: mockNavigate }),
 }));
 jest.mock('react-router-dom', () => ({
@@ -82,7 +84,10 @@ jest.mock('@librechat/client', () => ({
   ),
 }));
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockLocale = 'zh-Hant';
+});
 
 it.each([
   undefined,
@@ -100,7 +105,7 @@ it.each([
 });
 
 it('provides retry copy in English and Traditional Chinese', () => {
-  expect(en.com_ui_convo_delete_pending).toContain('Please try again later');
+  expect(mockEn.com_ui_convo_delete_pending).toContain('Please try again later');
   expect(mockZh.com_ui_convo_delete_pending).toContain('請稍後再試');
 });
 
@@ -147,4 +152,23 @@ it.each([
   expect(mockNavigate).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: mockZh.com_ui_delete }));
   expect(mockMutate).toHaveBeenCalledTimes(2);
+});
+
+// Accessible-name regression; real keyboard close/focus is covered by the browser harness.
+it.each([
+  ['en', 'Cancel'],
+  ['zh-Hant', '取消'],
+] as const)('exposes the visible %s cancel label as its accessible name', (locale, name) => {
+  mockLocale = locale;
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <DeleteConversationDialog
+        setShowDeleteDialog={jest.fn()}
+        conversationId="chat"
+        retainView={jest.fn()}
+        title="Retained chat"
+      />
+    </QueryClientProvider>,
+  );
+  expect(screen.getByRole('button', { name, exact: true })).toHaveTextContent(name);
 });
