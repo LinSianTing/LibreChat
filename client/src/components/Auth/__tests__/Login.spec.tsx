@@ -318,6 +318,8 @@ describe('central first-entry lifecycle', () => {
     const view = start();
     await waitFor(() => expect(attempt).toHaveBeenCalled());
     const options = attempt.mock.calls[0][0];
+    expect(view.getByText('Sign-in help').closest('details')).not.toHaveAttribute('open');
+    await userEvent.click(view.getByText('Sign-in help'));
     const link = view.getByRole('link', { name: 'End original session / Retry sign-out' });
     link.addEventListener('click', (event) => event.preventDefault());
     await userEvent.click(link);

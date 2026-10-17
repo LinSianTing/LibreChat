@@ -37,6 +37,7 @@ function Login() {
   const [centralEntryBlocked] = useState(
     disableAutoRedirect || searchParams.has('error') || error != null,
   );
+  const [entryPending, setEntryPending] = useState(false);
   const entryMounted = useRef(true);
   const entryBlocked = useRef(centralEntryBlocked);
   entryBlocked.current ||= disableAutoRedirect || searchParams.has('error') || error != null;
@@ -65,14 +66,19 @@ function Login() {
       },
       persist: persistRedirectToSession,
       request: async () => {
-        const response = await fetch(`${apiBaseUrl()}/api/auth/central-entry`, {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: '{}',
-          redirect: 'error',
-        });
-        return response.ok && (await response.json()).allowed === true;
+        if (entryMounted.current) setEntryPending(true);
+        try {
+          const response = await fetch(`${apiBaseUrl()}/api/auth/central-entry`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+            redirect: 'error',
+          });
+          return response.ok && (await response.json()).allowed === true;
+        } finally {
+          if (entryMounted.current) setEntryPending(false);
+        }
       },
       isCurrent: () => entryMounted.current && !entryBlocked.current,
       navigate: () => window.location.assign(`${apiBaseUrl()}/oauth/openid`),
@@ -165,13 +171,24 @@ function Login() {
 
   return (
     <>
-      {startupConfig?.centralLogoutEnabled && (
-        <p className="my-4 text-center text-sm text-text-secondary">
-          {localize('com_auth_central_expired_help')}{' '}
-          <a className="underline" href={`${apiBaseUrl()}/api/auth/central-logout`}>
-            {localize('com_auth_central_recover')}
-          </a>
+      {entryPending && (
+        <p className="my-4 text-center text-sm text-text-secondary" role="status">
+          {localize('com_auth_central_connecting')}
         </p>
+      )}
+      {startupConfig?.centralLogoutEnabled && (
+        <details
+          className="my-4 text-center text-sm text-text-secondary"
+          open={centralEntryBlocked || error != null || undefined}
+        >
+          <summary className="cursor-pointer p-2">{localize('com_auth_central_help')}</summary>
+          <p>
+            {localize('com_auth_central_expired_help')}{' '}
+            <a className="underline" href={`${apiBaseUrl()}/api/auth/central-logout`}>
+              {localize('com_auth_central_recover')}
+            </a>
+          </p>
+        </details>
       )}
       {error != null && <ErrorMessage>{localize(getLoginError(error))}</ErrorMessage>}
       {startupConfig?.emailLoginEnabled === true && (
