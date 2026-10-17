@@ -4,6 +4,7 @@ const ATTEMPT_KEY = 'openschool.central-entry-attempted.v1';
 export function isCentralEntryTarget(target: unknown): target is string {
   return (
     typeof target === 'string' &&
+    // eslint-disable-next-line no-control-regex -- Reject control characters in navigation input.
     !/[\\\u0000-\u001f\u007f]/.test(target) &&
     /^\/c\/(?:new|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})(?:\?[^#]*)?$/i.test(target)
   );

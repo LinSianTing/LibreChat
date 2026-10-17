@@ -9,6 +9,7 @@ import * as authMutations from '~/data-provider/Auth/mutations';
 import * as authQueries from '~/data-provider/Auth/queries';
 import AuthLayout from '~/components/Auth/AuthLayout';
 import Login from '~/components/Auth/Login';
+import * as centralEntry from '../centralEntry';
 
 jest.mock('librechat-data-provider/react-query');
 
@@ -282,6 +283,55 @@ describe('OAuth rejection redirects', () => {
 
       await waitFor(() => expect(getByTestId(document.body, 'login-button')).toBeInTheDocument());
       expect(mockShowToast).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('central first-entry lifecycle', () => {
+  const start = () =>
+    setup({
+      useGetStartupConfigReturnValue: {
+        ...mockStartupConfig,
+        data: { ...mockStartupConfig.data, centralLogoutEnabled: true },
+      },
+    });
+  beforeEach(() => {
+    sessionStorage.clear();
+    window.history.pushState({}, '', '/login?redirect_to=%2Fc%2Fnew%3Fmodel%3Dcircle');
+  });
+  afterEach(() => {
+    window.history.pushState({}, '', '/login');
+    sessionStorage.clear();
+  });
+  test('pending entry is invalidated by leaving the login page', async () => {
+    const attempt = jest.spyOn(centralEntry, 'attemptCentralEntry').mockResolvedValue();
+    const view = start();
+    await waitFor(() => expect(attempt).toHaveBeenCalled());
+    const options = attempt.mock.calls[0][0];
+    expect(options.target).toBe('/c/new?model=circle');
+    expect(options.isCurrent()).toBe(true);
+    view.unmount();
+    expect(options.isCurrent()).toBe(false);
+  });
+  test('manual recovery click invalidates a pending automatic navigation', async () => {
+    const attempt = jest.spyOn(centralEntry, 'attemptCentralEntry').mockResolvedValue();
+    const view = start();
+    await waitFor(() => expect(attempt).toHaveBeenCalled());
+    const options = attempt.mock.calls[0][0];
+    const link = view.getByRole('link', { name: 'End original session / Retry sign-out' });
+    link.addEventListener('click', (event) => event.preventDefault());
+    await userEvent.click(link);
+    expect(options.isCurrent()).toBe(false);
+  });
+  test.each(['redirect=false', 'error=auth_failed', 'error=unknown'])(
+    '%s blocks entry after query cleanup',
+    async (suffix) => {
+      const attempt = jest.spyOn(centralEntry, 'attemptCentralEntry').mockResolvedValue();
+      window.history.pushState({}, '', `/login?redirect_to=%2Fc%2Fnew&${suffix}`);
+      start();
+      await waitFor(() => expect(attempt).toHaveBeenCalled());
+      expect(attempt.mock.calls.every(([options]) => options.blocked)).toBe(true);
+      expect(attempt.mock.calls[0][0].isCurrent()).toBe(false);
     },
   );
 });

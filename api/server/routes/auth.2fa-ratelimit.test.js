@@ -7,6 +7,7 @@ const mockCheckBan = jest.fn((req, res, next) => next());
 const mockVerify2FAWithTempToken = jest.fn((req, res) => res.status(204).end());
 
 jest.mock('@librechat/api', () => ({
+  createCentralEntry: () => (_req, res) => res.sendStatus(404),
   createSetBalanceConfig: jest.fn(() => (req, res, next) => next()),
   forceRefreshCloudFrontAuthCookies: jest.fn(),
 }));

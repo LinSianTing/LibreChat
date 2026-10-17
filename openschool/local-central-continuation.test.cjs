@@ -274,7 +274,10 @@ test('first-entry HTTP never issues cookies; recovery browsers and cross-origin 
     assert.deepEqual(await denied.json(), { allowed: false });
     assert.deepEqual(denied.headers.getSetCookie(), []);
   }
-  assert.equal((await f.request(route, { method: 'POST', origin: 'https://evil.example' })).status, 403);
+  assert.equal(
+    (await f.request(route, { method: 'POST', origin: 'https://evil.example' })).status,
+    403,
+  );
   assert.deepEqual(await f.read(f.A.id), beforeA);
   assert.deepEqual(await f.read(f.B.id), beforeB);
 });

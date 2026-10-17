@@ -77,7 +77,14 @@ function Login() {
       isCurrent: () => entryMounted.current && !entryBlocked.current,
       navigate: () => window.location.assign(`${apiBaseUrl()}/oauth/openid`),
     });
-  }, [startupConfig, centralEntryBlocked, disableAutoRedirect, searchParams, location.state, error]);
+  }, [
+    startupConfig,
+    centralEntryBlocked,
+    disableAutoRedirect,
+    searchParams,
+    location.state,
+    error,
+  ]);
 
   useEffect(() => {
     const redirectTo = searchParams.get('redirect_to');

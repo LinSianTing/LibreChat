@@ -16,10 +16,14 @@ type EntryResponse = {
   json(value: { allowed: boolean }): unknown;
 };
 
-export function createCentralEntry({ enabled }: { enabled: () => boolean }) {
+export function createCentralEntry({
+  enabled,
+}: {
+  enabled: () => boolean;
+}): (req: EntryRequest, res: EntryResponse) => Promise<unknown> {
   // The current deployment is one Chat process. This is not a distributed lock.
   const pending = new Set<string>();
-  return async (req: EntryRequest, res: EntryResponse) => {
+  return async (req: EntryRequest, res: EntryResponse): Promise<unknown> => {
     res.setHeader('Cache-Control', 'no-store');
     const deny = (status = 409) => {
       // No response-time session touch/cookie write from a refused/stale A request.
@@ -47,7 +51,8 @@ export function createCentralEntry({ enabled }: { enabled: () => boolean }) {
         });
       }
       if (!req.session) return deny();
-      if (req.session.centralLogout !== undefined || req.session.centralEntryAttempted) return deny();
+      if (req.session.centralLogout !== undefined || req.session.centralEntryAttempted)
+        return deny();
       if (existingBrowser) {
         req.session.centralEntryAttempted = true;
         await new Promise<void>((resolve, reject) => {

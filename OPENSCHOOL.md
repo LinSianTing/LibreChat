@@ -32,19 +32,30 @@ Evidence on this working candidate:
   tests passed with the production route and new module. Real Express/MemoryStore
   cookies are exercised; Web/Mongo/IdP boundaries remain substituted. Includes one
   new first-entry HTTP case, A/B original-record preservation and empty Set-Cookie.
-- Strict standalone TypeScript checks of both new modules passed; JS syntax and diff
-  checks are part of the local handoff.
-- Full packages/api and client tsc were attempted against existing read-only build
-  dependencies and failed due to absent dev/test dependencies (Jest globals,
-  mongodb-memory-server and @testing-library/react). This is **not** a full typecheck
-  pass. Client Jest, complete bundle/build, Lighthouse and real multi-tab/Keycloak
-  UI roundtrip remain pending. Existing production dependency volume was not modified.
-- TC pre-review identified late-success cookie and stale-navigation risks; this
-  candidate includes the above protections. Fixed-commit independent review pending.
+- Client Login/AuthContext Jest: 44 pass, including leaving the page, manual recovery
+  click and sticky error/redirect=false after query cleanup. API route Jest: 14 pass
+  (cross-site, CloudFront, 2FA and password-reset regression).
+- Full packages/api and client `tsc --noEmit` passed with a new isolated development
+  dependency volume. The first attempt using existing production dependencies failed
+  due to absent Jest/testing-library types; it is not counted as a pass.
+- Data-provider, data-schemas, API, shared client and production frontend bundle built.
+  API declaration build initially required an explicit factory return annotation; fixed
+  and rebuilt successfully. Frontend retains eval/large-chunk build warnings.
+- Changed application files ESLint, JS syntax and diff checks passed. Existing
+  production dependency volume was read-only and not modified.
+- Lighthouse was attempted against the built bundle, but the isolated MongoMemoryServer
+  could not start because the test image lacks `libcurl.so.4`. No performance result
+  was produced. No real Google/Keycloak/Redis roundtrip, browser account-switch UX or
+  live demonstration acceptance is claimed. React tests are not full browser tests.
+- TC fixed review of checkpoint `ade047473de088f78183770f92f077b765cd566e` found no
+  new P1/P2 in its limited diff; later changes add declaration typing, formatting and
+  React/regression test compatibility. Final-source review is requested separately.
 
-The next release must build both API package and client bundle, then repeat local
-browser first-entry/error/manual/logout/account-switch checks. Do not publish or
-update the live demo based on this checkpoint. PM owns the separate Core proposal.
+The next release must use both the API package and client bundle, then complete local
+browser first-entry/error/manual/logout/account-switch checks and the pending performance
+gate. Do not publish or update the live demo based on this checkpoint. PM owns the
+separate Core proposal. Local QA container is stopped after collecting logs; its
+isolated dependencies remain for follow-up without another full install.
 
 ## 2026-10-02 controlled Demo trust wiring (not deployed)
 
