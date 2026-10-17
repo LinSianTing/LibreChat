@@ -38,6 +38,10 @@ function Login() {
     disableAutoRedirect || searchParams.has('error') || error != null,
   );
   const [entryPending, setEntryPending] = useState(false);
+  const [showRecovery, setShowRecovery] = useState(centralEntryBlocked);
+  useEffect(() => {
+    if (searchParams.has('error') || error != null) setShowRecovery(true);
+  }, [searchParams, error]);
   const entryMounted = useRef(true);
   const entryBlocked = useRef(centralEntryBlocked);
   entryBlocked.current ||= disableAutoRedirect || searchParams.has('error') || error != null;
@@ -45,6 +49,7 @@ function Login() {
     entryMounted.current = true;
     const cancelAutomaticEntry = () => {
       entryBlocked.current = true;
+      setEntryPending(false);
     };
     // Respect an explicit click (including keyboard activation) while the gate is pending.
     document.addEventListener('click', cancelAutomaticEntry, true);
@@ -179,7 +184,7 @@ function Login() {
       {startupConfig?.centralLogoutEnabled && (
         <details
           className="my-4 text-center text-sm text-text-secondary"
-          open={centralEntryBlocked || error != null || undefined}
+          open={showRecovery || searchParams.has('error') || error != null || undefined}
         >
           <summary className="cursor-pointer p-2">{localize('com_auth_central_help')}</summary>
           <p>
