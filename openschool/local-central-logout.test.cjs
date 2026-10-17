@@ -128,7 +128,10 @@ async function fixture(t, { expired = false, localMissing = false, enabled = tru
   const router = load('api/server/routes/auth.js', {
     express,
     '~/server/services/LocalCentralSSO': service,
-    '@librechat/api': { createSetBalanceConfig: () => pass },
+    '@librechat/api': {
+      createSetBalanceConfig: () => pass,
+      createCentralEntry: load('packages/api/src/openschool/entry.ts', {}, true).createCentralEntry,
+    },
     '~/server/controllers/AuthController': new Proxy({}, { get: () => pass }),
     '~/server/controllers/TwoFactorController': new Proxy({}, { get: () => pass }),
     '~/server/controllers/auth/TwoFactorAuthController': { verify2FAWithTempToken: pass },

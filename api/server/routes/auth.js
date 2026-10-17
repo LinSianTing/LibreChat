@@ -1,6 +1,10 @@
 const express = require('express');
 const centralSSO = require('~/server/services/LocalCentralSSO');
-const { createSetBalanceConfig, forceRefreshCloudFrontAuthCookies } = require('@librechat/api');
+const {
+  createSetBalanceConfig,
+  forceRefreshCloudFrontAuthCookies,
+  createCentralEntry,
+} = require('@librechat/api');
 const {
   resetPasswordRequestController,
   resetPasswordController,
@@ -30,6 +34,12 @@ const setBalanceConfig = createSetBalanceConfig({
 
 const router = express.Router();
 router.use(centralSSO.guardRoutes('auth'));
+router.post(
+  '/central-entry',
+  middleware.requireSameOrigin,
+  middleware.loginLimiter,
+  createCentralEntry({ enabled: centralSSO.enabled }),
+);
 router.get(
   '/central-session-check',
   require('~/server/services/CentralBrowserCheck')({

@@ -105,7 +105,10 @@ async function fixture(t) {
     jsonwebtoken: jwt,
     '~/models': { deleteSession },
     '~/server/services/LocalCentralSSO': service,
-    '@librechat/api': { createSetBalanceConfig: () => pass },
+    '@librechat/api': {
+      createSetBalanceConfig: () => pass,
+      createCentralEntry: load('packages/api/src/openschool/entry.ts', {}, true).createCentralEntry,
+    },
     '~/server/controllers/AuthController': fallback,
     '~/server/controllers/TwoFactorController': fallback,
     '~/server/controllers/auth/TwoFactorAuthController': fallback,
@@ -253,6 +256,28 @@ async function fixture(t) {
     },
   };
 }
+
+test('first-entry HTTP never issues cookies; recovery browsers and cross-origin requests cannot auto-enter', async (t) => {
+  const f = await fixture(t);
+  const beforeA = await f.read(f.A.id);
+  const beforeB = await f.read(f.B.id);
+  const route = '/api/auth/central-entry';
+  const fresh = await f.request(route, { method: 'POST' });
+  assert.equal(fresh.status, 200);
+  assert.deepEqual(await fresh.json(), { allowed: true });
+  assert.equal(fresh.headers.get('cache-control'), 'no-store');
+  // Even if this success arrives after another tab logs in, it cannot overwrite that cookie.
+  assert.deepEqual(fresh.headers.getSetCookie(), []);
+  for (const cookie of [f.A.cookie, f.B.cookie]) {
+    const denied = await f.request(route, { method: 'POST', cookie });
+    assert.equal(denied.status, 409);
+    assert.deepEqual(await denied.json(), { allowed: false });
+    assert.deepEqual(denied.headers.getSetCookie(), []);
+  }
+  assert.equal((await f.request(route, { method: 'POST', origin: 'https://evil.example' })).status, 403);
+  assert.deepEqual(await f.read(f.A.id), beforeA);
+  assert.deepEqual(await f.read(f.B.id), beforeB);
+});
 
 test('A expired Bearer plus real B cookie only revokes A; no B destroy, Set-Cookie or IdP redirect', async (t) => {
   const f = await fixture(t);

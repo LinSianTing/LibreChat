@@ -1,5 +1,51 @@
 # OpenSchool fork of LibreChat
 
+## 2026-10-17 first central entry (local candidate, not deployed)
+
+Base `cf2147cc721ee83e882528b151873b7cb70b1856` was verified against
+`origin/openschool/main` with ls-remote; its product tree equals deployed `853ce032`.
+Sole writer TL uses `codex/central-entry-once` / `librechat-central-entry`.
+PM assigned Eric's request to remove the extra sign-in click on first entry from
+the workspace. No push, merge, paid calls, SSM or deployment in this batch.
+
+General central `openidAutoRedirect` remains disabled. Login may attempt one automatic
+entry only with a conversation return (`/c/new` with circle query, or `/c/<uuid>`).
+The tab records its attempt before any async call and keeps it through errors,
+refresh, back, logout and subsequent renders. Error/redirect=false, unavailable storage,
+network refusal, leaving the page or explicit user click retains manual sign-in/recovery.
+The existing safe handoff persistence owns the destination; only the local existing
+OIDC route is used. No credentials, account ID or destination is sent to the new gate.
+
+`POST /api/auth/central-entry` uses existing same-origin and login-rate middleware.
+It refuses any existing recovery record, auth cookies/Bearer, or missing/invalid stored
+browser session. Existing connect.sid sessions reload before checking and save a marker
+before allowing. Fresh browsers are limited by their tab marker, without creating a
+new stored session. Every outcome detaches the response session: **no Set-Cookie or
+touch**, including success, so a late A gate response cannot replace a newer B cookie.
+The process-local pending set does not claim distributed locking or account-wide state.
+This gate is navigation convenience only: OIDC state/PKCE/callback, central reference,
+expiry/revocation, conversation ownership and circle admission remain unchanged.
+
+Evidence on this working candidate:
+- 13 native Node tests for the two new modules passed (Node 24 type stripping).
+- 85 existing/extended native central identity, SSO, access, logout and continuation
+  tests passed with the production route and new module. Real Express/MemoryStore
+  cookies are exercised; Web/Mongo/IdP boundaries remain substituted. Includes one
+  new first-entry HTTP case, A/B original-record preservation and empty Set-Cookie.
+- Strict standalone TypeScript checks of both new modules passed; JS syntax and diff
+  checks are part of the local handoff.
+- Full packages/api and client tsc were attempted against existing read-only build
+  dependencies and failed due to absent dev/test dependencies (Jest globals,
+  mongodb-memory-server and @testing-library/react). This is **not** a full typecheck
+  pass. Client Jest, complete bundle/build, Lighthouse and real multi-tab/Keycloak
+  UI roundtrip remain pending. Existing production dependency volume was not modified.
+- TC pre-review identified late-success cookie and stale-navigation risks; this
+  candidate includes the above protections. Fixed-commit independent review pending.
+
+The next release must build both API package and client bundle, then repeat local
+browser first-entry/error/manual/logout/account-switch checks. Do not publish or
+update the live demo based on this checkpoint. PM owns the separate Core proposal.
+
 ## 2026-10-02 controlled Demo trust wiring (not deployed)
 
 Based on `4ec3811f4`: an explicit `OPENSCHOOL_CENTRAL_PROFILE=demo` selects only
