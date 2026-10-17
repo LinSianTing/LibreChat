@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { OpenIDIcon, useToastContext } from '@librechat/client';
 import { ErrorTypes, registerPage, apiBaseUrl } from 'librechat-data-provider';
 import { useOutletContext, useSearchParams, useLocation } from 'react-router-dom';
@@ -10,6 +10,7 @@ import SocialButton from '~/components/Auth/SocialButton';
 import { useAuthContext } from '~/hooks/AuthContext';
 import { useLocalize } from '~/hooks';
 import LoginForm from './LoginForm';
+import { attemptCentralEntry } from './centralEntry';
 
 interface LoginLocationState {
   redirect_to?: string;
@@ -33,6 +34,68 @@ function Login() {
   const disableAutoRedirect = searchParams.get('redirect') === 'false';
 
   const [isAutoRedirectDisabled, setIsAutoRedirectDisabled] = useState(disableAutoRedirect);
+  const [centralEntryBlocked] = useState(
+    disableAutoRedirect || searchParams.has('error') || error != null,
+  );
+  const [entryPending, setEntryPending] = useState(false);
+  const [showRecovery, setShowRecovery] = useState(centralEntryBlocked);
+  useEffect(() => {
+    if (searchParams.has('error') || error != null) setShowRecovery(true);
+  }, [searchParams, error]);
+  const entryMounted = useRef(true);
+  const entryBlocked = useRef(centralEntryBlocked);
+  entryBlocked.current ||= disableAutoRedirect || searchParams.has('error') || error != null;
+  useEffect(() => {
+    entryMounted.current = true;
+    const cancelAutomaticEntry = () => {
+      entryBlocked.current = true;
+      setEntryPending(false);
+    };
+    // Respect an explicit click (including keyboard activation) while the gate is pending.
+    document.addEventListener('click', cancelAutomaticEntry, true);
+    return () => {
+      entryMounted.current = false;
+      document.removeEventListener('click', cancelAutomaticEntry, true);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!startupConfig?.centralLogoutEnabled || !startupConfig.openidLoginEnabled) return;
+    const state = location.state as LoginLocationState | null;
+    void attemptCentralEntry({
+      blocked: entryBlocked.current,
+      target: searchParams.get('redirect_to') ?? state?.redirect_to,
+      storage: {
+        getItem: (key) => sessionStorage.getItem(key),
+        setItem: (key, value) => sessionStorage.setItem(key, value),
+      },
+      persist: persistRedirectToSession,
+      request: async () => {
+        if (entryMounted.current) setEntryPending(true);
+        try {
+          const response = await fetch(`${apiBaseUrl()}/api/auth/central-entry`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+            redirect: 'error',
+          });
+          return response.ok && (await response.json()).allowed === true;
+        } finally {
+          if (entryMounted.current) setEntryPending(false);
+        }
+      },
+      isCurrent: () => entryMounted.current && !entryBlocked.current,
+      navigate: () => window.location.assign(`${apiBaseUrl()}/oauth/openid`),
+    });
+  }, [
+    startupConfig,
+    centralEntryBlocked,
+    disableAutoRedirect,
+    searchParams,
+    location.state,
+    error,
+  ]);
 
   useEffect(() => {
     const redirectTo = searchParams.get('redirect_to');
@@ -113,13 +176,24 @@ function Login() {
 
   return (
     <>
-      {startupConfig?.centralLogoutEnabled && (
-        <p className="my-4 text-center text-sm text-text-secondary">
-          {localize('com_auth_central_expired_help')}{' '}
-          <a className="underline" href={`${apiBaseUrl()}/api/auth/central-logout`}>
-            {localize('com_auth_central_recover')}
-          </a>
+      {entryPending && (
+        <p className="my-4 text-center text-sm text-text-secondary" role="status">
+          {localize('com_auth_central_connecting')}
         </p>
+      )}
+      {startupConfig?.centralLogoutEnabled && (
+        <details
+          className="my-4 text-center text-sm text-text-secondary"
+          open={showRecovery || searchParams.has('error') || error != null || undefined}
+        >
+          <summary className="cursor-pointer p-2">{localize('com_auth_central_help')}</summary>
+          <p>
+            {localize('com_auth_central_expired_help')}{' '}
+            <a className="underline" href={`${apiBaseUrl()}/api/auth/central-logout`}>
+              {localize('com_auth_central_recover')}
+            </a>
+          </p>
+        </details>
       )}
       {error != null && <ErrorMessage>{localize(getLoginError(error))}</ErrorMessage>}
       {startupConfig?.emailLoginEnabled === true && (

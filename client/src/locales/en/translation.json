@@ -1,4 +1,6 @@
 {
+  "com_auth_central_help": "Sign-in help",
+  "com_auth_central_connecting": "Continuing sign-in…",
   "com_auth_logout_other_browser": "The original Chat session was revoked. This browser now has a different session, which was left unchanged. Identity-provider sign-out was not attempted.",
   "com_auth_central_expired_help": "Session expired or OpenID sign-in failed? End the original identity-provider session, then sign in manually. The old session will not be extended.",
   "com_auth_central_recover": "End original session / Retry sign-out",

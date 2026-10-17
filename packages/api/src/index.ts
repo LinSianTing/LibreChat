@@ -135,3 +135,4 @@ export { parseCentralModelCatalog, resolveCentralModelScope } from './openschool
 
 export { createConversationMetadataRouter } from './openschool/metadata';
 export { createCircleExecution, circleExecutionOptions } from './openschool/execution';
+export { createCentralEntry } from './openschool/entry';

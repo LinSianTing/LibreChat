@@ -1,5 +1,107 @@
 # OpenSchool fork of LibreChat
 
+## 2026-10-17 local browser and recovery presentation follow-up (not deployed)
+
+Product `06556eef46ba5d7fbcbd1e3a35f26f8b8da02e46` extends `431c96f8`.
+The old recovery paragraph was displayed whenever central logout was enabled, not
+only after an error. Normal entry now puts it in an accessible Sign-in help disclosure;
+initial or later errors retain the recovery explanation. While the one-shot gate is
+pending, a status message explains continuation. Explicit clicks immediately cancel
+the status and existing automatic navigation. The original recovery URL and gate,
+OIDC validation, sticky attempt marker and authorization logic are unchanged.
+The outer manual login button remains; this does not guarantee no login-screen flash.
+
+Directed client Login/AuthContext tests: 44 pass; full client tsc and production Vite
+build pass. Existing chunk/eval warnings remain. First Jest attempt hit the default
+2GB heap limit; a later assertion incorrectly assumed JSDOM hides details descendants
+from role queries. Both failed attempts are retained locally; final checks use a 6GB
+Node cap and the native open attribute, with actual visibility checked in Chromium.
+
+The loopback-only container fixture uses the existing built client and transpiles the
+actual central-entry gate. Startup config, refresh rejection and OIDC/recovery endpoints
+are synthetic substitutes. This is not the whole deployed auth middleware, Mongo,
+Redis, Keycloak callback or Google. The original dependency volume was reused offline;
+no install, paid call, cloud operation or production setting changed.
+
+`central-entry-browser-check.cjs` records 9 representative cases plus 5 cold-context
+navigation samples: first entry, delayed gate and no repeat on return, manual recovery
+while pending, leaving while pending, denial, network failure, error query, explicit
+manual mode and stale auth cookie. Successful gate replies carry no Set-Cookie.
+Pending and default collapsed help screenshots are local only. Late error persistence
+is code-reviewed; no claim of a full real-provider late-error scenario.
+
+See `central-entry-browser-evidence.json` for fixed source, exact timings and build
+hashes. Five cold samples are loopback navigation latency, not throughput, real IdP
+latency or a before/after performance improvement. Warm cache was not measured.
+Web mobile/tablet evidence is in a separate repository/worktree and must not be counted
+as Chat SSO acceptance. No push, merge, tag or deployment in this follow-up.
+
+Reproduction needs the existing `/app` development-dependency volume (Node24), a
+`/source` checkout, writable `/evidence`, and a loopback-published synthetic fixture.
+`check-central-entry-ui.sh` formats the two changed TSX files and writes them back to
+that checkout, runs directed tests/typecheck/build without network. Do not run it in
+another writer's checkout. The fixture binds container3080; publish only127.0.0.1:15325.
+Playwright script accepts an evidence output directory and PLAYWRIGHT_MODULE/CHROME_PATH.
+Set CHAT_SOURCE to the fixed product hash before recording. It blocks nonloopback
+browser requests and never calls a paid provider.
+
+## 2026-10-17 first central entry (local candidate, not deployed)
+
+Base `cf2147cc721ee83e882528b151873b7cb70b1856` was verified against
+`origin/openschool/main` with ls-remote; its product tree equals deployed `853ce032`.
+Sole writer TL uses `codex/central-entry-once` / `librechat-central-entry`.
+PM assigned Eric's request to remove the extra sign-in click on first entry from
+the workspace. No push, merge, paid calls, SSM or deployment in this batch.
+
+General central `openidAutoRedirect` remains disabled. Login may attempt one automatic
+entry only with a conversation return (`/c/new` with circle query, or `/c/<uuid>`).
+The tab records its attempt before any async call and keeps it through errors,
+refresh, back, logout and subsequent renders. Error/redirect=false, unavailable storage,
+network refusal, leaving the page or explicit user click retains manual sign-in/recovery.
+The existing safe handoff persistence owns the destination; only the local existing
+OIDC route is used. No credentials, account ID or destination is sent to the new gate.
+
+`POST /api/auth/central-entry` uses existing same-origin and login-rate middleware.
+It refuses any existing recovery record, auth cookies/Bearer, or missing/invalid stored
+browser session. Existing connect.sid sessions reload before checking and save a marker
+before allowing. Fresh browsers are limited by their tab marker, without creating a
+new stored session. Every outcome detaches the response session: **no Set-Cookie or
+touch**, including success, so a late A gate response cannot replace a newer B cookie.
+The process-local pending set does not claim distributed locking or account-wide state.
+This gate is navigation convenience only: OIDC state/PKCE/callback, central reference,
+expiry/revocation, conversation ownership and circle admission remain unchanged.
+
+Evidence on this working candidate:
+- 13 native Node tests for the two new modules passed (Node 24 type stripping).
+- 85 existing/extended native central identity, SSO, access, logout and continuation
+  tests passed with the production route and new module. Real Express/MemoryStore
+  cookies are exercised; Web/Mongo/IdP boundaries remain substituted. Includes one
+  new first-entry HTTP case, A/B original-record preservation and empty Set-Cookie.
+- Client Login/AuthContext Jest: 44 pass, including leaving the page, manual recovery
+  click and sticky error/redirect=false after query cleanup. API route Jest: 14 pass
+  (cross-site, CloudFront, 2FA and password-reset regression).
+- Full packages/api and client `tsc --noEmit` passed with a new isolated development
+  dependency volume. The first attempt using existing production dependencies failed
+  due to absent Jest/testing-library types; it is not counted as a pass.
+- Data-provider, data-schemas, API, shared client and production frontend bundle built.
+  API declaration build initially required an explicit factory return annotation; fixed
+  and rebuilt successfully. Frontend retains eval/large-chunk build warnings.
+- Changed application files ESLint, JS syntax and diff checks passed. Existing
+  production dependency volume was read-only and not modified.
+- Lighthouse was attempted against the built bundle, but the isolated MongoMemoryServer
+  could not start because the test image lacks `libcurl.so.4`. No performance result
+  was produced. No real Google/Keycloak/Redis roundtrip, browser account-switch UX or
+  live demonstration acceptance is claimed. React tests are not full browser tests.
+- TC fixed review of checkpoint `ade047473de088f78183770f92f077b765cd566e` found no
+  new P1/P2 in its limited diff; later changes add declaration typing, formatting and
+  React/regression test compatibility. Final-source review is requested separately.
+
+The next release must use both the API package and client bundle, then complete local
+browser first-entry/error/manual/logout/account-switch checks and the pending performance
+gate. Do not publish or update the live demo based on this checkpoint. PM owns the
+separate Core proposal. Local QA container is stopped after collecting logs; its
+isolated dependencies remain for follow-up without another full install.
+
 ## 2026-10-02 controlled Demo trust wiring (not deployed)
 
 Based on `4ec3811f4`: an explicit `OPENSCHOOL_CENTRAL_PROFILE=demo` selects only

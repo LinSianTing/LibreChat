@@ -1,0 +1,137 @@
+{
+  "candidate": "06556eef46ba5d7fbcbd1e3a35f26f8b8da02e46",
+  "createdAt": "2026-10-17T12:27:53.563Z",
+  "browser": "144.0.7501.0",
+  "limits": "Synthetic startup/auth refresh and OIDC boundary. Actual bundled React and central-entry gate; no real identity/session callback or load capacity claim.",
+  "results": [
+    {
+      "name": "first",
+      "gates": 1,
+      "navs": 1,
+      "elapsedToNavigationMs": 558,
+      "gateMs": 12,
+      "finalPath": "/oauth/openid"
+    },
+    {
+      "name": "slow",
+      "gates": 1,
+      "navs": 1,
+      "elapsedToNavigationMs": 1534,
+      "gateMs": 1005,
+      "finalPath": "/login"
+    },
+    {
+      "name": "manual-during-pending",
+      "gates": 1,
+      "navs": 0,
+      "elapsedToNavigationMs": null,
+      "gateMs": 1009,
+      "finalPath": "/api/auth/central-logout"
+    },
+    {
+      "name": "leave-during-pending",
+      "gates": 1,
+      "navs": 0,
+      "elapsedToNavigationMs": null,
+      "gateMs": 1004,
+      "finalPath": "/login"
+    },
+    {
+      "name": "deny",
+      "gates": 1,
+      "navs": 0,
+      "elapsedToNavigationMs": null,
+      "gateMs": 1,
+      "finalPath": "/login"
+    },
+    {
+      "name": "network",
+      "gates": 1,
+      "navs": 0,
+      "elapsedToNavigationMs": null,
+      "gateMs": null,
+      "finalPath": "/login"
+    },
+    {
+      "name": "error",
+      "gates": 0,
+      "navs": 0,
+      "elapsedToNavigationMs": null,
+      "gateMs": null,
+      "finalPath": "/login"
+    },
+    {
+      "name": "explicit-manual",
+      "gates": 0,
+      "navs": 0,
+      "elapsedToNavigationMs": null,
+      "gateMs": null,
+      "finalPath": "/login"
+    },
+    {
+      "name": "stale-cookie",
+      "gates": 1,
+      "navs": 0,
+      "elapsedToNavigationMs": null,
+      "gateMs": 4,
+      "finalPath": "/login"
+    },
+    {
+      "name": "cold-0",
+      "gates": 1,
+      "navs": 1,
+      "elapsedToNavigationMs": 539,
+      "gateMs": 3,
+      "finalPath": "/oauth/openid"
+    },
+    {
+      "name": "cold-1",
+      "gates": 1,
+      "navs": 1,
+      "elapsedToNavigationMs": 514,
+      "gateMs": 2,
+      "finalPath": "/oauth/openid"
+    },
+    {
+      "name": "cold-2",
+      "gates": 1,
+      "navs": 1,
+      "elapsedToNavigationMs": 506,
+      "gateMs": 2,
+      "finalPath": "/oauth/openid"
+    },
+    {
+      "name": "cold-3",
+      "gates": 1,
+      "navs": 1,
+      "elapsedToNavigationMs": 536,
+      "gateMs": 3,
+      "finalPath": "/oauth/openid"
+    },
+    {
+      "name": "cold-4",
+      "gates": 1,
+      "navs": 1,
+      "elapsedToNavigationMs": 601,
+      "gateMs": 3,
+      "finalPath": "/oauth/openid"
+    }
+  ],
+  "build": {
+    "clientLoginSha256": "a62f0fdd262590489ad93c3aa33af8f0bd964a74fd28aab90cb825bb286710cf",
+    "centralEntryHelperSha256": "5d1d148e4617c72e6e44d05746c83623f405f03d6ba4d76cd13f10f2c41c23bf",
+    "gateSha256": "e3a6677c701199ed9189f1a5ff42de86371ee2c81164b7e0d51ecf9570169fa8",
+    "distIndexSha256": "789d4ab856110d1c24e82053518d5b17f90c5097e32fcfb27f272197616957b8",
+    "directedReactTests": 44,
+    "clientTypecheck": "pass",
+    "productionFrontendBuild": "pass",
+    "containerExitCode": 0
+  },
+  "review": "TC limited diff review through 06556eef4: no new P1/P2; did not rerun tests.",
+  "performance": "Five fresh contexts, cold browser cache, loopback fixture only. No warm cache/real provider/throughput claim.",
+  "previousFailures": [
+    "initial fixture mount/type-module/Express wildcard configuration corrected before testing",
+    "Jest initial 2GB heap exhausted; rerun with 6GB cap",
+    "JSDOM details role visibility assertion replaced with native open attribute; browser verifies actual visibility"
+  ]
+}
