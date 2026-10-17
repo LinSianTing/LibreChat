@@ -1,5 +1,50 @@
 # OpenSchool fork of LibreChat
 
+## 2026-10-17 local browser and recovery presentation follow-up (not deployed)
+
+Product `06556eef46ba5d7fbcbd1e3a35f26f8b8da02e46` extends `431c96f8`.
+The old recovery paragraph was displayed whenever central logout was enabled, not
+only after an error. Normal entry now puts it in an accessible Sign-in help disclosure;
+initial or later errors retain the recovery explanation. While the one-shot gate is
+pending, a status message explains continuation. Explicit clicks immediately cancel
+the status and existing automatic navigation. The original recovery URL and gate,
+OIDC validation, sticky attempt marker and authorization logic are unchanged.
+The outer manual login button remains; this does not guarantee no login-screen flash.
+
+Directed client Login/AuthContext tests: 44 pass; full client tsc and production Vite
+build pass. Existing chunk/eval warnings remain. First Jest attempt hit the default
+2GB heap limit; a later assertion incorrectly assumed JSDOM hides details descendants
+from role queries. Both failed attempts are retained locally; final checks use a 6GB
+Node cap and the native open attribute, with actual visibility checked in Chromium.
+
+The loopback-only container fixture uses the existing built client and transpiles the
+actual central-entry gate. Startup config, refresh rejection and OIDC/recovery endpoints
+are synthetic substitutes. This is not the whole deployed auth middleware, Mongo,
+Redis, Keycloak callback or Google. The original dependency volume was reused offline;
+no install, paid call, cloud operation or production setting changed.
+
+`central-entry-browser-check.cjs` records 9 representative cases plus 5 cold-context
+navigation samples: first entry, delayed gate and no repeat on return, manual recovery
+while pending, leaving while pending, denial, network failure, error query, explicit
+manual mode and stale auth cookie. Successful gate replies carry no Set-Cookie.
+Pending and default collapsed help screenshots are local only. Late error persistence
+is code-reviewed; no claim of a full real-provider late-error scenario.
+
+See `central-entry-browser-evidence.json` for fixed source, exact timings and build
+hashes. Five cold samples are loopback navigation latency, not throughput, real IdP
+latency or a before/after performance improvement. Warm cache was not measured.
+Web mobile/tablet evidence is in a separate repository/worktree and must not be counted
+as Chat SSO acceptance. No push, merge, tag or deployment in this follow-up.
+
+Reproduction needs the existing `/app` development-dependency volume (Node24), a
+`/source` checkout, writable `/evidence`, and a loopback-published synthetic fixture.
+`check-central-entry-ui.sh` formats the two changed TSX files and writes them back to
+that checkout, runs directed tests/typecheck/build without network. Do not run it in
+another writer's checkout. The fixture binds container3080; publish only127.0.0.1:15325.
+Playwright script accepts an evidence output directory and PLAYWRIGHT_MODULE/CHROME_PATH.
+Set CHAT_SOURCE to the fixed product hash before recording. It blocks nonloopback
+browser requests and never calls a paid provider.
+
 ## 2026-10-17 first central entry (local candidate, not deployed)
 
 Base `cf2147cc721ee83e882528b151873b7cb70b1856` was verified against
